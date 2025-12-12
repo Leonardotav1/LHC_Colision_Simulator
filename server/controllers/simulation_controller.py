@@ -1,13 +1,9 @@
 from flask import request, jsonify
-from services.simulation_service import generate_simulation
+from services.simulation_service import simulate_event
 
-def simulate_event():
-    try:
-        params = request.json
-        n = params.get("n_particles", 40)
+def run_event():
+    data = request.get_json()
+    n = data.get("n_particles", 40)
 
-        result = generate_simulation(n)
-        return result
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    fig = simulate_event(n)
+    return fig

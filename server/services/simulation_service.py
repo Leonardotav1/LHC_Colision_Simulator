@@ -1,13 +1,10 @@
-from simulations.generator import build_pp_event_trajectories
-from simulations.constants import T_MAX_EVENT
-from utils.plot_builder import build_plot_json
+# from simulations.generator import build_pp_event_trajectories
+# from simulations.constants import T_MAX_EVENT
+# from utils.plot_builder import build_plot_json
 
+from flask import Response
+from utils.plot_builder import build_collision_figure
 
-def generate_simulation(n_particles: int):
-    trajectories = build_pp_event_trajectories(
-        n_particles=n_particles,
-        t_max=T_MAX_EVENT,
-        dt=0.5
-    )
-
-    return build_plot_json(trajectories)
+def simulate_event():
+    fig_json = build_collision_figure(n_products=40)
+    return Response(fig_json, mimetype='application/json')
