@@ -1,4 +1,5 @@
 from flask import request
+import os
 
 def process_root_upload():
     file = request.files.get("file")
@@ -8,7 +9,12 @@ def process_root_upload():
 
     print("Processando arquivo ROOT:", file.filename)
 
-    filepath = f"./uploads/{file.filename}"
+    upload_folder = "./upload/"
+    if not os.path.exists(upload_folder):
+        os.makedirs(upload_folder)
+
+    filepath = os.path.join(upload_folder, file.filename)
+
     file.save(filepath)
 
     return {
