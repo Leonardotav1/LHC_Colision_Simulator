@@ -1,22 +1,36 @@
 import numpy as np
 
-def helical_trajectory(direction, charge, steps=80, radius=1.0, pitch=0.15):
-    print(direction)
+def helical_trajectory(direction, charge, steps=60, radius=5.0, pitch=0.4):
     dx, dy, dz = direction
 
-    t = np.linspace(0, 6 * np.pi, steps)
+    # Normaliza a direção
+    v = np.array([dx, dy, dz], dtype=float)
+    v = v / np.linalg.norm(v)
 
-    # Base helix no plano XY
-    hx = radius * np.cos(t) * charge
-    hy = radius * np.sin(t)
-    hz = pitch * t 
+    # Vetor perpendicular qualquer
+    if abs(v[2]) < 0.9:
+        perp = np.cross(v, [0, 0, 1])
+    else:
+        perp = np.cross(v, [0, 1, 0])
 
-    # Projetar a helix na direção da partícula
-    x = hx * abs(dy) + dx * t * 0.05
-    y = hy * abs(dx) + dy * t * 0.05
-    z = dz * t
+    perp = perp / np.linalg.norm(perp)
 
-    return list(zip(x, y, z))
+    # Outro vetor perpendicular (base ortonormal)
+    perp2 = np.cross(v, perp)
+
+    t = np.linspace(0, 8 * np.pi, steps)
+
+    points = []
+
+    for i, ti in enumerate(t):
+        pos = (
+            v * (pitch * ti) +
+            perp * (radius * np.cos(ti) * charge) +
+            perp2 * (radius * np.sin(ti))
+        )
+        points.append(tuple(pos))
+
+    return points
 
 
 def straight_trajectory(direction, length=6.0, steps=30):

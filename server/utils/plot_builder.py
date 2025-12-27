@@ -36,13 +36,13 @@ def build_collision_figure(event_data):
 
     base_traces = [
         go.Scatter3d(
-            x=[0], y=[0], z=[-BEAM_Z],
+            x=[0], y=[-BEAM_Z], z=[0],
             mode="markers",
             marker=dict(size=5, color="blue"),
             name="proton_1"
         ),
         go.Scatter3d(
-            x=[0], y=[0], z=[BEAM_Z],
+            x=[0], y=[BEAM_Z], z=[0],
             mode="markers",
             marker=dict(size=5, color="red"),
             name="proton_2"
@@ -71,20 +71,20 @@ def build_collision_figure(event_data):
     # FASE 1 – PROTONS SE APROXIMANDO
 
     for i in range(T_COLLISION_FRAMES):
-        z_pos = BEAM_Z * (1 - i / T_COLLISION_FRAMES)
+        y_pos = BEAM_Z * (1 - i / T_COLLISION_FRAMES)
 
         data = []
 
         # proton 1
         data.append(dict(
             type="scatter3d",
-            x=[0], y=[0], z=[-z_pos]
+            x=[0], y=[-y_pos], z=[0]
         ))
 
         # proton 2
         data.append(dict(
             type="scatter3d",
-            x=[0], y=[0], z=[z_pos]
+            x=[0], y=[y_pos], z=[0]
         ))
 
         # ponto da colisao (fixo, invisivel na pratica)
@@ -123,7 +123,10 @@ def build_collision_figure(event_data):
                 ys = [p[1] for p in traj[:step + 1]]
                 zs = [p[2] for p in traj[:step + 1]]
             else:
-                xs, ys, zs = [], [], []
+                       
+                xs = [p[0] for p in traj]
+                ys = [p[1] for p in traj]
+                zs = [p[2] for p in traj]
 
             data.append(dict(
                 type="scatter3d",
@@ -155,16 +158,15 @@ def build_collision_figure(event_data):
             "pad": {"r": 10, "t": 10},
             "bgcolor": "black",
             "bordercolor": "white",
-            "borderwidth": 1,
             "font": {
-                "color": "white",
+                "color": "black",
                 "size": 14
             },
             "buttons": [{
                 "label": "Play",
                 "method": "animate",
                 "args": [None, {
-                    "frame": {"duration": 60, "redraw": True},
+                    "frame": {"duration": 40, "redraw": True},
                     "fromcurrent": True
                 }]
             }]

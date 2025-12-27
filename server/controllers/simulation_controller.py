@@ -23,16 +23,4 @@ def simulate_event():
 
     safe_result = to_json_safe(result)
 
-    # # Extrai o caminho do arquivo ROOT
-    # file_path = data.get("file_path")
-
-    # if not file_path:
-    #     return jsonify({"error": "file_path is required"}), 400
-
-    # # Chama o serviço para construir a simulação    
-    # fig_json = build_simulation_from_root(file_path)
-
-    # print(json.dumps(safe_result, indent=1))
-    
-    # return safe_result
     return build_collision_figure(safe_result)
