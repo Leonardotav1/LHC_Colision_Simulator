@@ -1,5 +1,6 @@
-from flask import request
+from flask import current_app, request
 import os
+from werkzeug.utils import secure_filename
 
 def process_root_upload():
     file = request.files.get("file")
@@ -7,17 +8,21 @@ def process_root_upload():
     if file is None:
         return {"error": "no file uploaded"}, 400
 
-    print("Processando arquivo ROOT:", file.filename)
+    if file.filename == "":
+        return {"error": "empty filename"}, 400
 
-    upload_folder = "./upload/"
-    if not os.path.exists(upload_folder):
-        os.makedirs(upload_folder)
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_folder, exist_ok=True)
 
-    filepath = os.path.join(upload_folder, file.filename)
-
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(upload_folder, filename)
     file.save(filepath)
+
+    # Guarda o caminho do ultimo ROOT para a rota /simulate usar
+    current_app.config["ROOT_FILE_PATH"] = filepath
 
     return {
         "status": "ok",
-        "filename": file.filename
+        "filename": filename,
+        "path": filepath
     }

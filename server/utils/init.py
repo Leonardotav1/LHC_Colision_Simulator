@@ -1,6 +1,6 @@
 import uproot
 
-file = uproot.open("./upload/Arquivo_lhc.root")
+file = uproot.open("./upload/arquivo.root")
 
 for key in file.keys():
     obj = file[key]
