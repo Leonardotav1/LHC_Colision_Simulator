@@ -1,0 +1,368 @@
+﻿
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Painel de Detalhes da PartÃ­cula</title>
+    
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <style>
+        /* --- ESTILO GERAL (Dark Sci-Fi) --- */
+        body { margin: 0; background: #0b1121; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #e2e8f0; height: 100vh; overflow: hidden; }
+        
+        /* GRID LAYOUT COMPLEXO */
+        .container {
+            display: grid;
+            grid-template-columns: 20% 1fr 25%; /* Esquerda, Centro (3D), Direita */
+            grid-template-rows: 80px 1fr 250px; /* Topo, Meio, Baixo */
+            gap: 10px;
+            height: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        /* PAINÃ‰IS */
+        .panel {
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #1e293b;
+            border-radius: 4px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            display: flex; flex-direction: column;
+            overflow: hidden; position: relative;
+        }
+        .panel-header {
+            background: rgba(30, 41, 59, 0.8);
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: bold;
+            color: #38bdf8; /* Azul claro */
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 1px solid #1e293b;
+            display: flex; justify-content: space-between;
+        }
+
+        /* ONDE OS GRÃFICOS FICAM */
+        .plot-container { flex: 1; width: 100%; min-height: 0; position: relative; }
+
+        /* --- POSICIONAMENTO NO GRID --- */
+        /* Topo (KPIs) */
+        .header-stats { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; justify-content: space-around; background: #0f172a; border: 1px solid #38bdf8; }
+        
+        /* Coluna Esquerda */
+        .left-top { grid-column: 1; grid-row: 2; } /* ProjeÃ§Ã£o 2D */
+        .left-bot { grid-column: 1; grid-row: 3; } /* Probabilidade PID */
+
+        /* Centro (O 3D Principal) */
+        .center-main { grid-column: 2; grid-row: 2 / 4; border: 1px solid #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.1); }
+
+        /* Coluna Direita */
+        .right-top { grid-column: 3; grid-row: 2; } /* Espectro */
+        .right-mid { grid-column: 3; grid-row: 3; } /* CalorÃ­metro */
+        
+        /* --- ESTILOS DE TEXTO --- */
+        .kpi-box { text-align: center; }
+        .kpi-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .kpi-value { font-size: 24px; font-weight: bold; color: #fff; font-family: 'Courier New', monospace; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+        .unit { font-size: 12px; color: #64748b; }
+
+        /* TABELA DE DADOS ESPECÃFICOS */
+        .data-table { width: 100%; font-size: 12px; border-collapse: collapse; margin-top: 5px; }
+        .data-table td { padding: 4px; border-bottom: 1px solid #334155; }
+        .data-val { text-align: right; color: #cbd5e1; font-family: monospace; }
+        .data-key { color: #94a3b8; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="panel header-stats">
+        <div class="kpi-box">
+            <div class="kpi-label">ID do Evento</div>
+            <div class="kpi-value" id="kpi-event-id">#8492-A</div>
+        </div>
+        <div class="kpi-box">
+            <div class="kpi-label">Energia Total (E)</div>
+            <div class="kpi-value"><span id="kpi-energy">13.6</span> <span class="unit">GeV</span></div>
+        </div>
+        <div class="kpi-box">
+            <div class="kpi-label">Momento Transversal ($p_T$)</div>
+            <div class="kpi-value"><span id="kpi-pt">4.2</span> <span class="unit">GeV/c</span></div>
+        </div>
+        <div class="kpi-box">
+            <div class="kpi-label">Velocidade ($\beta$)</div>
+            <div class="kpi-value"><span id="kpi-beta">0.992</span> <span class="unit">c</span></div>
+        </div>
+        <div class="kpi-box">
+            <div class="kpi-label">ClassificaÃ§Ã£o PrimÃ¡ria</div>
+            <div class="kpi-value" style="color:#4ade80" id="kpi-type">N/A</div>
+        </div>
+    </div>
+
+    <div class="panel left-top">
+        <div class="panel-header"><span>TrajetÃ³ria Transversal (X-Y)</span> <span>[cm]</span></div>
+        <div id="transversePlot" class="plot-container"></div>
+    </div>
+    
+    <div class="panel left-bot">
+        <div class="panel-header"><span>Matriz de Probabilidade (PID)</span> <span>[%]</span></div>
+        <div id="pidPlot" class="plot-container"></div>
+    </div>
+
+    <div class="panel center-main">
+        <div class="panel-header" style="background:#0f172a; border-bottom:1px solid #38bdf8;">
+            <span>VisualizaÃ§Ã£o da CÃ¢mara de Bolhas (3D)</span>
+            <span style="font-size:9px; opacity:0.7">CAM-01: LIVE</span>
+        </div>
+        <div id="main3d" class="plot-container"></div>
+    </div>
+
+    <div class="panel right-top">
+        <div class="panel-header"><span>DepÃ³sito de Energia (dE/dx)</span> <span>[MeV/cm]</span></div>
+        <div id="energyPlot" class="plot-container"></div>
+    </div>
+
+    <div class="panel right-mid">
+        <div class="panel-header"><span>Dados EspecÃ­ficos da PartÃ­cula</span></div>
+        <div style="padding: 10px; overflow-y: auto;">
+            <table class="data-table">
+                <tr><td class="data-key">Massa Invariante:</td><td class="data-val" id="data-mass">N/A</td></tr>
+                <tr><td class="data-key">Tempo de Voo (TOF):</td><td class="data-val" id="data-tof">N/A</td></tr>
+                <tr><td class="data-key">Carga (q):</td><td class="data-val" id="data-charge">N/A</td></tr>
+                <tr><td class="data-key">CÃ¢mara de MÃºons:</td><td class="data-val" id="data-stop-reason">N/A</td></tr>
+                <tr><td class="data-key">Tracker Hits:</td><td class="data-val" id="data-tracker-hits">N/A</td></tr>
+                <tr><td class="data-key">Pseudorapidez ($\eta$):</td><td class="data-val" id="data-eta">N/A</td></tr>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const commonLayout = {
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        font: { color: "#94a3b8", size: 9 },
+        margin: { t: 10, l: 30, r: 10, b: 30 },
+        xaxis: { showgrid: true, gridcolor: '#1e293b', zerolinecolor: '#334155' },
+        yaxis: { showgrid: true, gridcolor: '#1e293b', zerolinecolor: '#334155' },
+        autosize: true
+    };
+
+    function getSelectedParticle() {
+        const params = new URLSearchParams(window.location.search);
+        const key = params.get('particle_key');
+        if (key) {
+            const rawByKey = localStorage.getItem(key);
+            if (rawByKey) {
+                try { return JSON.parse(rawByKey); } catch {}
+            }
+        }
+
+        // fallback: use the most recent particle stored in localStorage
+        let latest = null;
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (!k || !k.startsWith('selectedParticle:')) continue;
+            if (!latest || k > latest) latest = k;
+        }
+        if (latest) {
+            const rawLatest = localStorage.getItem(latest);
+            if (rawLatest) {
+                try { return JSON.parse(rawLatest); } catch {}
+            }
+        }
+
+        // fallback legado
+        const rawLegacy = sessionStorage.getItem('selectedParticle');
+        if (!rawLegacy) return null;
+        try { return JSON.parse(rawLegacy); } catch { return null; }
+    }
+
+    function createFallbackParticle() {
+        const trajectory = Array.from({ length: 80 }, (_, i) => {
+            const t = i / 8;
+            return [Math.cos(t) * (4 + i * 0.05), i * 0.35, Math.sin(t) * (4 + i * 0.05)];
+        });
+        return {
+            type: 'muon',
+            color: '#01ae18',
+            stop_reason: 'fallback_demo',
+            particle_index: 0,
+            reco: {
+                pt_gev: { nominal: 4.2 },
+                eta: 2.41,
+                phi: 1.2,
+                charge: -1
+            },
+            trajectory
+        };
+    }
+
+    function formatParticleType(type) {
+        const map = {
+            electron: 'ELÉTRON (e-)',
+            muon: 'MÚON (μ-)',
+            photon: 'FÓTON (γ)',
+            tau: 'TAU (τ)',
+            jet: 'JET',
+            met: 'MET'
+        };
+        return map[type] || String(type || 'N/A').toUpperCase();
+    }
+
+    function updateSummaryCards(data) {
+        const reco = data?.reco || {};
+        const pt = reco?.pt_gev?.nominal;
+        const eta = reco?.eta;
+        const charge = reco?.charge;
+        const eventId = Number.isFinite(data?.particle_index) ? `#P-${data.particle_index}` : '#N/A';
+
+        document.getElementById('kpi-event-id').textContent = eventId;
+        document.getElementById('kpi-pt').textContent = Number.isFinite(pt) ? pt.toFixed(3) : 'N/A';
+        document.getElementById('kpi-energy').textContent = Number.isFinite(pt) && Number.isFinite(eta)
+            ? (pt * Math.cosh(eta)).toFixed(3)
+            : 'N/A';
+        document.getElementById('kpi-beta').textContent = Number.isFinite(pt) ? '0.99' : 'N/A';
+        document.getElementById('kpi-type').textContent = formatParticleType(data?.type);
+
+        document.getElementById('data-mass').textContent = 'N/A';
+        document.getElementById('data-tof').textContent = 'N/A';
+        document.getElementById('data-charge').textContent = Number.isFinite(charge) ? `${charge} e` : 'N/A';
+        document.getElementById('data-stop-reason').textContent = data?.stop_reason || 'N/A';
+        document.getElementById('data-tracker-hits').textContent = Array.isArray(data?.trajectory) ? data.trajectory.length : 'N/A';
+        document.getElementById('data-eta').textContent = Number.isFinite(eta) ? eta.toFixed(4) : 'N/A';
+    }
+
+    function renderizarGraficos2D(data) {
+        const traj = Array.isArray(data?.trajectory) ? data.trajectory : [];
+        const x = traj.map(p => p[0]);
+        const y = traj.map(p => p[1]);
+        const z = traj.map(p => p[2]);
+
+        Plotly.newPlot("transversePlot", [{
+            x, y,
+            mode: 'lines+markers',
+            marker: { size: 3, color: data?.color || '#38bdf8' },
+            line: { color: data?.color || '#38bdf8', width: 2, shape: 'spline' }
+        }], {
+            ...commonLayout,
+            xaxis: { ...commonLayout.xaxis, title: 'Posição X [cm]' },
+            yaxis: { ...commonLayout.yaxis, title: 'Posição Y [cm]' }
+        });
+
+        const classes = ['Elétron', 'Múon', 'Tau', 'Fóton', 'Jet', 'MET'];
+        const typeToClass = {
+            electron: 'Elétron',
+            muon: 'Múon',
+            tau: 'Tau',
+            photon: 'Fóton',
+            jet: 'Jet',
+            met: 'MET'
+        };
+        const selectedClass = typeToClass[String(data?.type || '').toLowerCase()] || null;
+        const probs = classes.map(c => c === selectedClass ? 1.0 : 0.0);
+        Plotly.newPlot("pidPlot", [{
+            x: classes, y: probs, type: 'bar',
+            marker: { color: classes.map(c => c.toLowerCase() === key ? '#4ade80' : '#1e293b') }
+        }], {
+            ...commonLayout,
+            yaxis: { ...commonLayout.yaxis, title: 'Probabilidade', range: [0, 1] }
+        });
+
+        const step = [];
+        const dedx = [];
+        for (let i = 1; i < traj.length; i++) {
+            const dx = x[i] - x[i - 1];
+            const dy = y[i] - y[i - 1];
+            const dz = z[i] - z[i - 1];
+            const ds = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            step.push(i);
+            dedx.push(ds > 0 ? 1.0 / ds : 0.0);
+        }
+        Plotly.newPlot("energyPlot", [{
+            x: step, y: dedx, fill: 'tozeroy', type: 'scatter', line: { color: '#f59e0b' }
+        }], {
+            ...commonLayout,
+            xaxis: { ...commonLayout.xaxis, title: 'Passo da Trajetória' },
+            yaxis: { ...commonLayout.yaxis, title: 'Proxy dE/dx' }
+        });
+    }
+
+    function iniciarSimulacao3D(data) {
+        const container = document.getElementById("main3d");
+        if (container.clientHeight < 10) { setTimeout(() => iniciarSimulacao3D(data), 100); return; }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b1121);
+        scene.fog = new THREE.FogExp2(0x0b1121, 0.02);
+
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 2000);
+        camera.position.set(30, 20, 30);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.innerHTML = "";
+        container.appendChild(renderer.domElement);
+
+        scene.add(new THREE.GridHelper(80, 40, 0x1e293b, 0x0f172a));
+        scene.add(new THREE.AxesHelper(4));
+        const light = new THREE.PointLight(0x38bdf8, 1.2, 200);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+        const traj = Array.isArray(data?.trajectory) && data.trajectory.length > 1
+            ? data.trajectory
+            : Array.from({ length: 60 }, (_, i) => [Math.cos(i / 8) * 8, i * 0.4, Math.sin(i / 8) * 8]);
+
+        const trailLength = Math.min(25, traj.length);
+        const trailParts = [];
+        for (let i = 0; i < trailLength; i++) {
+            const size = 0.25 - (i * 0.006);
+            const opacity = 1 - (i * 0.035);
+            const mat = new THREE.MeshBasicMaterial({
+                color: i === 0 ? 0xffffff : new THREE.Color(data?.color || '#38bdf8'),
+                transparent: true, opacity: Math.max(0.05, opacity)
+            });
+            const mesh = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.06, size), 8, 8), mat);
+            scene.add(mesh);
+            trailParts.push(mesh);
+        }
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 1.0;
+
+        let idx = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            const p = traj[idx];
+            light.position.set(p[0], p[1], p[2]);
+            for (let i = trailLength - 1; i > 0; i--) {
+                trailParts[i].position.copy(trailParts[i - 1].position);
+            }
+            trailParts[0].position.set(p[0], p[1], p[2]);
+            idx = (idx + 1) % traj.length;
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    }
+
+    function carregarDadosDaParticula(dados) {
+        updateSummaryCards(dados);
+        renderizarGraficos2D(dados);
+        iniciarSimulacao3D(dados);
+    }
+
+    window.onload = function () {
+        const data = getSelectedParticle() || createFallbackParticle();
+        carregarDadosDaParticula(data);
+    };
+</script>
+</body>
+</html>
