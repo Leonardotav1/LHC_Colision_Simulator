@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalhes da Partícula</title>
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: radial-gradient(circle at 20% 20%, #0f1a35 0%, #070d1d 60%, #040814 100%);
+            font-family: "Segoe UI", Arial, sans-serif;
+            color: #dbeafe;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .modal {
+            width: min(1100px, 95vw);
+            height: min(760px, 95vh);
+            background: rgba(9, 15, 35, 0.95);
+            border: 1px solid #1f3b66;
+            border-radius: 12px;
+            box-shadow: 0 16px 45px rgba(0, 0, 0, 0.45);
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            overflow: hidden;
+        }
+        .left {
+            border-right: 1px solid #1f3b66;
+            padding: 16px;
+            box-sizing: border-box;
+        }
+        .right {
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 10px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        .title {
+            font-weight: 700;
+            font-size: 16px;
+            color: #7dd3fc;
+            margin-bottom: 10px;
+        }
+        .kpi {
+            margin: 8px 0;
+            padding: 10px;
+            background: rgba(15, 30, 58, 0.85);
+            border: 1px solid #1e3a8a;
+            border-radius: 8px;
+        }
+        .kpi .label { font-size: 11px; color: #93c5fd; text-transform: uppercase; }
+        .kpi .value { font-size: 18px; color: #ffffff; font-family: Consolas, monospace; }
+        .table {
+            margin-top: 10px;
+            border-top: 1px solid #1e3a8a;
+            padding-top: 10px;
+            font-size: 12px;
+        }
+        .row { display: flex; justify-content: space-between; margin: 6px 0; gap: 8px; }
+        .row span:first-child { color: #93c5fd; }
+        .row span:last-child { color: #e2e8f0; font-family: Consolas, monospace; text-align: right; }
+        .plot {
+            background: rgba(10, 20, 40, 0.65);
+            border: 1px solid #1f3b66;
+            border-radius: 8px;
+            min-height: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="modal">
+        <div class="left">
+            <div class="title">Detalhes da Partícula</div>
+            <div class="kpi"><div class="label">Tipo</div><div id="kType" class="value">N/A</div></div>
+            <div class="kpi"><div class="label">pT / MET (GeV)</div><div id="kPt" class="value">N/A</div></div>
+            <div class="kpi"><div class="label">Pseudorapidez (η)</div><div id="kEta" class="value">N/A</div></div>
+            <div class="kpi"><div class="label">Ângulo (φ)</div><div id="kPhi" class="value">N/A</div></div>
+            <div class="table">
+                <div class="row"><span>Carga</span><span id="dCharge">N/A</span></div>
+                <div class="row"><span>Stop reason</span><span id="dStop">N/A</span></div>
+                <div class="row"><span>Pontos da trajetória</span><span id="dPoints">N/A</span></div>
+            </div>
+        </div>
+        <div class="right">
+            <div id="plotXY" class="plot"></div>
+            <div id="plotRZ" class="plot"></div>
+        </div>
+    </div>
+
+    <script>
+        function getParticle() {
+            const params = new URLSearchParams(window.location.search);
+            const key = params.get("particle_key");
+            if (!key) return null;
+            const raw = localStorage.getItem(key);
+            if (!raw) return null;
+            try { return JSON.parse(raw); } catch { return null; }
+        }
+
+        function num(v, digits = 3) {
+            return Number.isFinite(v) ? v.toFixed(digits) : "N/A";
+        }
+
+        function build() {
+            const p = getParticle();
+            if (!p) return;
+            const reco = p.reco || {};
+            const pt = typeof reco.pt_gev === "number" ? reco.pt_gev : reco?.pt_gev?.nominal;
+            const met = typeof reco.met_gev === "number" ? reco.met_gev : reco?.met_gev?.nominal;
+            const val = Number.isFinite(pt) ? pt : met;
+            const traj = Array.isArray(p.trajectory) ? p.trajectory : [];
+
+            document.getElementById("kType").textContent = String(p.type || "N/A").toUpperCase();
+            document.getElementById("kPt").textContent = num(val, 4);
+            document.getElementById("kEta").textContent = num(reco.eta, 4);
+            document.getElementById("kPhi").textContent = num(reco.phi, 4);
+            document.getElementById("dCharge").textContent = Number.isFinite(reco.charge) ? String(reco.charge) : "N/A";
+            document.getElementById("dStop").textContent = p.stop_reason || "N/A";
+            document.getElementById("dPoints").textContent = String(traj.length);
+
+            const x = traj.map((t) => t[0]);
+            const y = traj.map((t) => t[1]);
+            const z = traj.map((t) => t[2]);
+            const r = traj.map((t) => Math.hypot(t[0], t[1]));
+            const c = p.color || "#38bdf8";
+
+            const baseLayout = {
+                paper_bgcolor: "rgba(0,0,0,0)",
+                plot_bgcolor: "rgba(0,0,0,0)",
+                font: { color: "#cbd5e1", size: 11 },
+                margin: { t: 28, l: 45, r: 20, b: 40 }
+            };
+
+            Plotly.newPlot("plotXY", [{
+                x, y, type: "scatter", mode: "lines+markers",
+                line: { color: c, width: 2.2 },
+                marker: { color: c, size: 4 }
+            }], {
+                ...baseLayout,
+                title: { text: "Trajetória Transversal (X-Y)", font: { color: "#7dd3fc", size: 13 } },
+                xaxis: { title: "X [cm]", gridcolor: "rgba(56,189,248,0.12)" },
+                yaxis: { title: "Y [cm]", gridcolor: "rgba(56,189,248,0.12)", scaleanchor: "x", scaleratio: 1 }
+            }, { displaylogo: false, responsive: true });
+
+            Plotly.newPlot("plotRZ", [{
+                x: z, y: r, type: "scatter", mode: "lines",
+                line: { color: "#facc15", width: 2.2 }
+            }], {
+                ...baseLayout,
+                title: { text: "Perfil Longitudinal (Z-R)", font: { color: "#7dd3fc", size: 13 } },
+                xaxis: { title: "Z [cm]", gridcolor: "rgba(56,189,248,0.12)" },
+                yaxis: { title: "R = √(x²+y²) [cm]", gridcolor: "rgba(56,189,248,0.12)" }
+            }, { displaylogo: false, responsive: true });
+        }
+
+        window.onload = build;
+    </script>
+</body>
+</html>

@@ -97,55 +97,130 @@ function drawPlots(objects, counts) {
     // Cria as traces para o gráfico de radar, mapeando os objetos para um formato adequado para a visualização. 
     // Para cada objeto, extrai as coordenadas x e y da trajetória (se disponível) e configura as propriedades de estilo, como cor e largura da linha. 
     // As traces são configuradas para serem do tipo "scatter" com modo "lines", e o hoverinfo é desativado para evitar informações de tooltip ao passar o mouse sobre as linhas.
-    const polarTraces = objects.slice(0, 80).map((o) => {
-        const x = (o.trajectory || []).map((p) => p[0]);
-        const y = (o.trajectory || []).map((p) => p[1]);
-        return {
+    const radarObjects = objects.slice(0, 200);
+    const radialValues = radarObjects.flatMap((o) => (o.trajectory || []).map((p) => Math.hypot(p[0], p[1])));
+    const radarMaxR = Math.max(1, ...radialValues);
+    const radarScale = 4.0 / radarMaxR;
+    const legendDone = new Set();
+    const typeCfg = {
+        muon: { name: "Muon", color: "#22c55e", width: 2.1, dash: "solid" },
+        electron: { name: "Eletron", color: "#3b82f6", width: 1.8, dash: "solid" },
+        photon: { name: "Foton", color: "#facc15", width: 1.6, dash: "solid" },
+        tau: { name: "Tau", color: "#a855f7", width: 1.8, dash: "solid" },
+        jet: { name: "Jatos", color: "#ef4444", width: 2.0, dash: "solid" },
+        met: { name: "MET", color: "#06b6d4", width: 2.4, dash: "dashdot" }
+    };
+
+    const radarTraces = [];
+    for (const o of radarObjects) {
+        const traj = o.trajectory || [];
+        if (traj.length < 2) continue;
+        const cfg = typeCfg[o.type] || { name: o.type || "Particula", color: o.color || "#ffffff", width: 1.2, dash: "solid" };
+        let x = traj.map((p) => p[0] * radarScale);
+        let y = traj.map((p) => p[1] * radarScale);
+
+        // MET vindo do ROOT pode ter comprimento muito curto; aplicamos apenas boost visual
+        // preservando a direcao da trajetoria para nao "sumir" no radar.
+        if (o.type === "met" && x.length > 1) {
+            const lx = x[x.length - 1];
+            const ly = y[y.length - 1];
+            const r = Math.hypot(lx, ly);
+            const minRadarLen = 1.25;
+            if (r > 0 && r < minRadarLen) {
+                const boost = minRadarLen / r;
+                x = x.map((v) => v * boost);
+                y = y.map((v) => v * boost);
+            }
+        }
+        const ptVal = recoValue(o);
+        const key = cfg.name;
+        const mainTrace = {
             x,
             y,
             mode: "lines",
-            line: {
-                color: o.color || "#ffffff",
-                width: 1
-            },
+            line: { color: cfg.color, width: cfg.width, dash: cfg.dash },
+            opacity: o.type === "met" ? 0.95 : (o.type === "jet" ? 0.85 : 0.75),
             type: "scatter",
-            hoverinfo: "skip",
-            showlegend: false
+            name: cfg.name,
+            showlegend: !legendDone.has(key),
+            hovertemplate: `tipo: ${cfg.name}<br>x: %{x:.2f}<br>y: %{y:.2f}<br>pT/MET: ${Number.isFinite(ptVal) ? ptVal.toFixed(2) : "N/A"} GeV<extra></extra>`
         };
-    });
+        radarTraces.push(mainTrace);
+        if (o.type === "met" && x.length > 0) {
+            radarTraces.push({
+                x: [x[x.length - 1]],
+                y: [y[y.length - 1]],
+                mode: "markers",
+                marker: { color: cfg.color, size: 9, symbol: "diamond-open", line: { color: "#ffffff", width: 1 } },
+                type: "scatter",
+                name: "MET (direcao)",
+                showlegend: false,
+                hovertemplate: `tipo: MET<br>x: %{x:.2f}<br>y: %{y:.2f}<extra></extra>`
+            });
+        }
+        legendDone.add(key);
+    }
 
-    polarTraces.push({
+    radarTraces.push({
         x: [0],
         y: [0],
         mode: "markers",
-        marker: {
-            color: "#fff",
-            size: 4
-        },
+        marker: { color: "#ffffff", size: 5, symbol: "cross" },
         showlegend: false,
         hoverinfo: "skip"
     });
 
-    Plotly.newPlot("radarPlot", polarTraces,
-        {
-            ...layout,
-            margin: {
-                t: 10,
-                l: 10,
-                r: 10,
-                b: 10
-            },
-            xaxis: {
-                visible: false,
-                scaleanchor: "y"
-            },
-            yaxis: {
-                visible: false
-            }
+    const radarLayout = {
+        ...layout,
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(2,11,33,0.72)",
+        margin: { t: 10, l: 10, r: 10, b: 82 },
+        showlegend: true,
+        hovermode: "closest",
+        dragmode: "pan",
+        legend: {
+            font: { color: "#94a3b8", size: 10 },
+            orientation: "h",
+            x: 0.5,
+            xanchor: "center",
+            y: -0.18,
+            yanchor: "top",
+            bgcolor: "rgba(0,0,0,0)"
         },
-        { displayModeBar: false },
-        
-    );
+        xaxis: {
+            visible: true,
+            title: "",
+            showticklabels: false,
+            range: [-5.0, 5.0],
+            scaleanchor: "y",
+            scaleratio: 1,
+            gridcolor: "rgba(56,189,248,0.10)",
+            zeroline: true,
+            zerolinecolor: "rgba(255,255,255,0.20)"
+        },
+        yaxis: {
+            visible: true,
+            title: "",
+            showticklabels: false,
+            range: [-5.0, 5.0],
+            gridcolor: "rgba(56,189,248,0.10)",
+            zeroline: true,
+            zerolinecolor: "rgba(255,255,255,0.20)"
+        },
+        shapes: [
+            { type: "circle", x0: -0.8, y0: -0.8, x1: 0.8, y1: 0.8, line: { color: "#334155", width: 1, dash: "dot" } },
+            { type: "circle", x0: -2.2, y0: -2.2, x1: 2.2, y1: 2.2, line: { color: "#38bdf8", width: 1 } },
+            { type: "circle", x0: -3.8, y0: -3.8, x1: 3.8, y1: 3.8, line: { color: "#0f172a", width: 3 } }
+        ]
+    };
+    const radarConfig = {
+        responsive: true,
+        displayModeBar: true,
+        scrollZoom: true,
+        modeBarButtonsToRemove: ["lasso2d", "select2d", "toggleSpikelines"],
+        displaylogo: false
+    };
+    Plotly.newPlot("radarPlot", radarTraces, radarLayout, radarConfig);
 
     Plotly.newPlot("pizzaPlotMini", [{
         values: [
@@ -253,8 +328,8 @@ function draw3D(objects) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0b1121);
     const width = container.clientWidth || 800, height = container.clientHeight || 500;
-    const camera = new THREE.PerspectiveCamera(60, width / height, 0.1, 220);
-    camera.position.set(1, 20, 15);
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 220);
+    camera.position.set(12, 10, 25);
 
     // Configurações do renderizador e controles de órbita
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -264,7 +339,7 @@ function draw3D(objects) {
     // Configurações dos controles de órbita
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.autoRotate = isRotating;
-    controls.autoRotateSpeed = 0.1;
+    controls.autoRotateSpeed = 0.5;
     controls.enableDamping = true;
     controls.target.set(0, 0, 0);
     controls.minDistance = 2.5;
@@ -315,6 +390,39 @@ function draw3D(objects) {
     scene.add(criarCamada(3.0, 4.0, 0x1e293b, 0.95, false));
     scene.add(criarCamada(4.5, 5.5, 0x0f172a, 1.0, false));
 
+    // Placas de silicio no interior do detector (estilo do layout de referencia).
+    const matSiliconInner = new THREE.MeshPhongMaterial({ color: 0xfacc15, side: THREE.DoubleSide, shininess: 100 });
+    const matSiliconOuter = new THREE.MeshPhongMaterial({ color: 0x4ade80, side: THREE.DoubleSide, shininess: 60 });
+    for (let i = 0; i < 160; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        if (theta > Math.PI / 4 && theta < 3 * Math.PI / 4) continue;
+        const zPos = (Math.random() - 0.5) * (tubeLen - 10);
+        if (i % 2 === 0) {
+            const r = 0.8 + Math.random() * 0.7;
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.05, 0.60), matSiliconInner);
+            plate.position.set(r * Math.cos(theta), r * Math.sin(theta), zPos);
+            plate.lookAt(0, 0, zPos);
+            scene.add(plate);
+        } else {
+            const r = 1.8 + Math.random() * 0.7;
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.50, 0.05), matSiliconOuter);
+            plate.position.set(r * Math.cos(theta), r * Math.sin(theta), zPos);
+            plate.lookAt(0, 0, zPos);
+            scene.add(plate);
+        }
+    }
+
+    // Emissores brancos nas duas pontas do tubo.
+    const emitterGeo = new THREE.CylinderGeometry(0.5, 0.5, 3, 16);
+    emitterGeo.rotateX(Math.PI / 2);
+    const emitterMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 120 });
+    const emitterA = new THREE.Mesh(emitterGeo, emitterMat);
+    const emitterB = new THREE.Mesh(emitterGeo, emitterMat);
+    emitterA.position.set(0, 0, tubeLen / 2 - 1);
+    emitterB.position.set(0, 0, -tubeLen / 2 + 1);
+    scene.add(emitterA);
+    scene.add(emitterB);
+
     const particleGeo = new THREE.SphereGeometry(0.22, 20, 20);
     const particleMatA = new THREE.MeshPhongMaterial({ color: 0x38bdf8, emissive: 0x0a5f7a, shininess: 90 });
     const particleMatB = new THREE.MeshPhongMaterial({ color: 0xf472b6, emissive: 0x742347, shininess: 90 });
@@ -341,7 +449,16 @@ function draw3D(objects) {
     const targets = [];
     const anim = [];
     for (const o of objects) {
-        const pts = (o.trajectory || []).map((p) => new THREE.Vector3(p[0] * scale, p[1] * scale, p[2] * scale));
+        let pts = (o.trajectory || []).map((p) => new THREE.Vector3(p[0] * scale, p[1] * scale, p[2] * scale));
+        if (o.type === "met" && pts.length > 1) {
+            const end = pts[pts.length - 1];
+            const rEnd = Math.hypot(end.x, end.y);
+            const minMetDisplayLen = 1.0;
+            if (rEnd > 0 && rEnd < minMetDisplayLen) {
+                const boost = minMetDisplayLen / rEnd;
+                pts = pts.map((v) => new THREE.Vector3(v.x * boost, v.y * boost, v.z * boost));
+            }
+        }
         if (pts.length < 2) continue;
         const color = toHex(o.color);
         const trajGeometry = new THREE.BufferGeometry().setFromPoints(pts);
@@ -352,6 +469,15 @@ function draw3D(objects) {
         const head = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), new THREE.MeshBasicMaterial({ color }));
         head.position.copy(pts[0]);
         head.visible = false;
+        head.userData = {
+            particle: {
+                type: o.type,
+                color: o.color,
+                reco: o.reco || {},
+                trajectory: Array.isArray(o.trajectory) ? o.trajectory : [],
+                stop_reason: o.stop_reason || "N/A"
+            }
+        };
         scene.add(head);
         targets.push(head);
         anim.push({ head, line: trajLine, pts, idx: 0, step: Math.max(1, Math.floor(pts.length / 120)) });
@@ -361,7 +487,14 @@ function draw3D(objects) {
         const rect = renderer.domElement.getBoundingClientRect();
         const mouse = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
         const ray = new THREE.Raycaster(); ray.setFromCamera(mouse, camera);
-        if (ray.intersectObjects(targets).length > 0) window.open("painel-individual.html", "_blank");
+        const intersects = ray.intersectObjects(targets);
+        if (intersects.length > 0) {
+            const selected = intersects[0].object?.userData?.particle;
+            if (!selected) return;
+            const key = `selectedParticle:${Date.now()}`;
+            localStorage.setItem(key, JSON.stringify(selected));
+            window.open(`Particles/ParticleModal.html?particle_key=${encodeURIComponent(key)}`, "_blank");
+        }
     };
 
     let fase = "COLLISAO";
@@ -475,3 +608,4 @@ document.getElementById("uploadBtn").addEventListener("click", async () => {
 document.getElementById("simBtn").addEventListener("click", carregarDoBackend);
 document.getElementById("rotBtn").addEventListener("click", toggleRotation);
 window.onload = () => setTimeout(carregarDoBackend, 600);
+
