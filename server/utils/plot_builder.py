@@ -16,6 +16,7 @@ from simulations.constants import (
 
 # VISUAL SETTINGS
 T_COLLISION_FRAMES = 20
+DETECTOR_OPACITY = 0.08
 
 
 def _compute_axis_limit_cm(objects_with_traj, min_limit=MIN_AXIS_LIMIT_CM, padding=AXIS_PADDING):
@@ -26,41 +27,48 @@ def _compute_axis_limit_cm(objects_with_traj, min_limit=MIN_AXIS_LIMIT_CM, paddi
     return max(min_limit, max_abs * padding)
 
 
-def _circle_trace(radius_cm, z_cm, color, name, dash="dot"):
-    theta = np.linspace(0.0, 2.0 * np.pi, 100)
-    x = radius_cm * np.cos(theta)
-    y = radius_cm * np.sin(theta)
-    z = np.full_like(theta, z_cm)
-    return go.Scatter3d(
+def _cylinder_surface_trace(radius_cm, half_z_cm, color, name, opacity=DETECTOR_OPACITY):
+    theta = np.linspace(0.0, 2.0 * np.pi, 80)
+    z = np.linspace(-half_z_cm, half_z_cm, 2)
+    theta_grid, z_grid = np.meshgrid(theta, z)
+    x = radius_cm * np.cos(theta_grid)
+    y = radius_cm * np.sin(theta_grid)
+
+    return go.Surface(
         x=x,
         y=y,
-        z=z,
-        mode="lines",
-        line=dict(color=color, width=2, dash=dash),
+        z=z_grid,
+        surfacecolor=np.zeros_like(x),
+        colorscale=[[0, color], [1, color]],
+        showscale=False,
+        opacity=opacity,
         name=name,
+        hoverinfo="skip",
         showlegend=False,
+        lighting=dict(ambient=0.9, diffuse=0.3, specular=0.15, roughness=0.9),
+        lightposition=dict(x=100, y=0, z=200),
     )
 
 
 def _detector_shell_traces():
     traces = []
 
-    # Tracker shell
-    traces.append(_circle_trace(TRACKER_RADIUS_CM, 0.0, "#4ea1ff", "tracker"))
-    traces.append(_circle_trace(TRACKER_RADIUS_CM, TRACKER_HALF_Z_CM, "#4ea1ff", "tracker"))
-    traces.append(_circle_trace(TRACKER_RADIUS_CM, -TRACKER_HALF_Z_CM, "#4ea1ff", "tracker"))
-
-    # Calorimeter shell
-    traces.append(_circle_trace(CALO_RADIUS_CM, 0.0, "#f6b93b", "calorimeter"))
-    traces.append(_circle_trace(CALO_RADIUS_CM, CALO_HALF_Z_CM, "#f6b93b", "calorimeter"))
-    traces.append(_circle_trace(CALO_RADIUS_CM, -CALO_HALF_Z_CM, "#f6b93b", "calorimeter"))
-
-    # Muon shell
-    traces.append(_circle_trace(MUON_RADIUS_CM, 0.0, "#9b59b6", "muon"))
-    traces.append(_circle_trace(MUON_RADIUS_CM, MUON_HALF_Z_CM, "#9b59b6", "muon"))
-    traces.append(_circle_trace(MUON_RADIUS_CM, -MUON_HALF_Z_CM, "#9b59b6", "muon"))
+    # Keep a subtle inner shell to preserve detector context without clutter
+    traces.append(_cylinder_surface_trace(CALO_RADIUS_CM, CALO_HALF_Z_CM, "#8aa5c2", "calorimeter", opacity=0.06))
 
     return traces
+
+
+def _tunnel_shell_trace(axis_limit_cm):
+    radius_cm = axis_limit_cm * 0.98
+    half_z_cm = axis_limit_cm * 0.98
+    return _cylinder_surface_trace(
+        radius_cm=radius_cm,
+        half_z_cm=half_z_cm,
+        color="#5f7898",
+        name="tunnel",
+        opacity=0.18,
+    )
 
 
 def _build_title(event_data):
@@ -94,46 +102,60 @@ def build_collision_figure(event_data):
     # Dynamic traces first (animation relies on this order)
     base_traces = [
         go.Scatter3d(
-            x=[0], y=[-BEAM_Z_CM], z=[0],
-            mode="markers",
-            marker=dict(size=5, color="blue"),
+            x=[0, 0], y=[-BEAM_Z_CM, 0], z=[0, 0],
+            mode="lines+markers",
+            line=dict(color="#4ea1ff", width=6),
+            marker=dict(size=4, color="#4ea1ff"),
             name="proton_1",
+            showlegend=False,
         ),
         go.Scatter3d(
-            x=[0], y=[BEAM_Z_CM], z=[0],
-            mode="markers",
-            marker=dict(size=5, color="red"),
+            x=[0, 0], y=[BEAM_Z_CM, 0], z=[0, 0],
+            mode="lines+markers",
+            line=dict(color="#ff6b6b", width=6),
+            marker=dict(size=4, color="#ff6b6b"),
             name="proton_2",
+            showlegend=False,
         ),
         go.Scatter3d(
             x=[0], y=[0], z=[0],
             mode="markers",
-            marker=dict(size=4, color="white"),
+            marker=dict(size=5, color="white"),
             name="collision",
+            showlegend=False,
         ),
     ]
 
-    for obj in objects_with_traj:
+    for idx, obj in enumerate(objects_with_traj):
         base_traces.append(
             go.Scatter3d(
                 x=[],
                 y=[],
                 z=[],
                 mode="lines",
-                line=dict(color=obj.get("color", "white"), width=5),
+                line=dict(color=obj.get("color", "white"), width=8),
                 name=obj["type"],
+                meta={
+                    "particle_index": idx,
+                    "type": obj.get("type"),
+                    "color": obj.get("color"),
+                    "stop_reason": obj.get("stop_reason"),
+                    "reco": obj.get("reco", {}),
+                    "trajectory": obj.get("trajectory", []),
+                },
             )
         )
 
-    # Static detector shells appended after dynamic traces
+    # Static shells appended after dynamic traces
+    base_traces.append(_tunnel_shell_trace(axis_limit_cm))
     base_traces.extend(_detector_shell_traces())
 
     # Phase 1: incoming beams
     for i in range(T_COLLISION_FRAMES):
         y_pos = BEAM_Z_CM * (1 - i / T_COLLISION_FRAMES)
         data = [
-            dict(type="scatter3d", x=[0], y=[-y_pos], z=[0]),
-            dict(type="scatter3d", x=[0], y=[y_pos], z=[0]),
+            dict(type="scatter3d", x=[0, 0], y=[-y_pos, 0], z=[0, 0]),
+            dict(type="scatter3d", x=[0, 0], y=[y_pos, 0], z=[0, 0]),
             dict(type="scatter3d", x=[0], y=[0], z=[0]),
         ]
 
@@ -167,13 +189,34 @@ def build_collision_figure(event_data):
     layout = go.Layout(
         title=_build_title(event_data),
         scene=dict(
-            xaxis=dict(title="x [cm]", range=[-axis_limit_cm, axis_limit_cm], backgroundcolor="black"),
-            yaxis=dict(title="y [cm]", range=[-axis_limit_cm, axis_limit_cm], backgroundcolor="black"),
-            zaxis=dict(title="z [cm]", range=[-axis_limit_cm, axis_limit_cm], backgroundcolor="black"),
+            xaxis=dict(
+                title="x [cm]",
+                range=[-axis_limit_cm, axis_limit_cm],
+                showgrid=False,
+                zeroline=False,
+                showbackground=False,
+            ),
+            yaxis=dict(
+                title="y [cm]",
+                range=[-axis_limit_cm, axis_limit_cm],
+                showgrid=False,
+                zeroline=False,
+                showbackground=False,
+            ),
+            zaxis=dict(
+                title="z [cm]",
+                range=[-axis_limit_cm, axis_limit_cm],
+                showgrid=False,
+                zeroline=False,
+                showbackground=False,
+            ),
             aspectmode="cube",
+            bgcolor="rgb(233,241,249)",
+            camera=dict(eye=dict(x=1.45, y=0.18, z=0.22)),
         ),
-        paper_bgcolor="black",
-        font=dict(color="white"),
+        paper_bgcolor="rgb(225,236,247)",
+        plot_bgcolor="rgb(225,236,247)",
+        font=dict(color="#1f2d3d"),
         showlegend=False,
         updatemenus=[
             {
@@ -182,9 +225,9 @@ def build_collision_figure(event_data):
                 "x": 0.05,
                 "y": 0.95,
                 "pad": {"r": 10, "t": 10},
-                "bgcolor": "black",
-                "bordercolor": "white",
-                "font": {"color": "black", "size": 14},
+                "bgcolor": "#d7e6f4",
+                "bordercolor": "#6e85a1",
+                "font": {"color": "#1f2d3d", "size": 13},
                 "buttons": [
                     {
                         "label": "Play",

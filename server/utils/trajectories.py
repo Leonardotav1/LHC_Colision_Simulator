@@ -37,11 +37,11 @@ def helical_trajectory(direction, charge, steps=120, radius=5.0, pitch_per_turn=
 
     for ti in t:
         axial = pitch_per_turn * (ti / (2.0 * np.pi))
-        pos = (
-            v * axial
-            + perp * (radius * np.cos(ti) * q_sign)
-            + perp2 * (radius * np.sin(ti))
-        )
+        # Anchor helix at the interaction point (0,0,0) for ti=0 while
+        # preserving curvature radius, handedness (charge), and pitch.
+        radial_x = radius * (np.cos(ti) * q_sign - q_sign)
+        radial_y = radius * np.sin(ti)
+        pos = v * axial + perp * radial_x + perp2 * radial_y
         points.append(tuple(float(x) for x in pos))
 
     return points
