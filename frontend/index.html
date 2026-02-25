@@ -8,24 +8,32 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <style>
         body { margin: 0; background: #0b1121; font-family: "Segoe UI", sans-serif; color: #e2e8f0; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
-        .top-navbar { background: rgba(15, 23, 42, 0.95); border-bottom: 1px solid #38bdf8; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+        .top-navbar { background: rgba(15, 23, 42, 0.95); border-bottom: 1px solid #38bdf8; min-height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 8px 20px; gap: 12px; }
         .brand { font-size: 20px; font-weight: 900; color: #fff; letter-spacing: 2px; }
         .brand span { color: #38bdf8; }
-        .file-info { display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #1e293b; padding: 4px 10px; border-radius: 4px; font-family: monospace; font-size: 11px; }
+        .file-info { display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #1e293b; padding: 6px 10px; border-radius: 6px; font-family: monospace; font-size: 11px; }
         .file-info .val { color: #4ade80; }
-        .nav-controls { display: flex; gap: 8px; align-items: center; }
-        .btn { background: rgba(56, 189, 248, 0.08); color: #38bdf8; border: 1px solid #38bdf8; padding: 6px 10px; font-size: 11px; cursor: pointer; font-weight: bold; border-radius: 4px; }
-        .btn:hover { background: #38bdf8; color: #0b1121; }
-        .event-selector { display: flex; align-items: center; border: 1px solid #38bdf8; border-radius: 4px; overflow: hidden; }
-        .event-selector span { font-size: 9px; color: #38bdf8; padding: 0 6px; font-weight: bold; }
-        .event-selector input { width: 56px; background: transparent; border: none; color: #fff; font-family: monospace; text-align: center; outline: none; font-size: 12px; }
-        .container { display: flex; gap: 15px; flex: 1; padding: 15px; box-sizing: border-box; }
+        .nav-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+        .btn { background: rgba(56, 189, 248, 0.08); color: #38bdf8; border: 1px solid #38bdf8; padding: 7px 12px; font-size: 11px; cursor: pointer; font-weight: bold; border-radius: 6px; transition: 0.2s; }
+        .btn:hover { background: #38bdf8; color: #0b1121; box-shadow: 0 0 10px rgba(56, 189, 248, 0.35); }
+        .btn-inside { border-left: 1px solid #38bdf8; border-radius: 0 6px 6px 0; }
+        .upload-card { display: flex; align-items: center; gap: 8px; background: linear-gradient(180deg, rgba(15,23,42,0.95), rgba(15,23,42,0.72)); border: 1px solid #1f3f5f; border-radius: 8px; padding: 5px 8px; box-shadow: inset 0 0 0 1px rgba(56,189,248,0.08); }
+        .upload-chip { font-size: 10px; color: #7dd3fc; font-weight: 700; letter-spacing: 0.4px; }
+        .event-selector { display: flex; align-items: center; border: 1px solid #2f6b94; border-radius: 6px; overflow: hidden; background: rgba(8,15,30,0.8); }
+        .event-selector span { font-size: 9px; color: #7dd3fc; padding: 0 7px; font-weight: bold; letter-spacing: 0.2px; }
+        .event-selector input { width: 64px; background: transparent; border: none; color: #fff; font-family: monospace; text-align: center; outline: none; font-size: 12px; padding: 6px 0; }
+        .root-selector { width: 220px; background: rgba(4, 10, 22, 0.92); border: none; color: #dbeafe; font-family: monospace; padding: 7px 8px; outline: none; font-size: 12px; }
+        .root-selector option { background: #0f172a; color: #dbeafe; }
+        .container { display: flex; gap: 15px; flex: 1; padding: 15px; box-sizing: border-box; min-height: 0; }
+        .error-banner { display: none; margin: 8px 15px 0; padding: 10px 12px; border: 1px solid #ef4444; background: rgba(127, 29, 29, 0.35); color: #fecaca; border-radius: 8px; font-size: 12px; font-family: monospace; }
+        .error-banner.show { display: block; }
         .col-left { width: 280px; display: flex; flex-direction: column; gap: 15px; }
         .col-center { flex: 1; min-width: 0; display: flex; }
-        .col-right { width: 300px; display: flex; flex-direction: column; gap: 15px; }
+        .col-right { width: 360px; display: flex; flex-direction: column; gap: 15px; }
         .panel { background: rgba(15, 23, 42, 0.9); border: 1px solid #1e293b; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
         .panel-header { background: #1e293b; padding: 8px 12px; font-size: 11px; font-weight: bold; color: #38bdf8; border-bottom: 1px solid #0f172a; display: flex; justify-content: space-between; }
         .plot-container { width: 100%; height: 100%; min-height: 160px; }
+        #heatmapPlot { min-height: 340px; }
         #main3d { height: calc(100vh - 130px); min-height: 420px; cursor: crosshair; }
         .kpi-row { display: flex; justify-content: space-between; padding: 10px 15px; border-bottom: 1px solid #1e293b; }
         .kpi-label { font-size: 11px; color: #94a3b8; }
@@ -37,22 +45,26 @@
 <body>
 <div class="top-navbar">
     <div class="brand">NEXUS <span>Collider</span></div>
-    <div class="file-info">
-        <span>ARQUIVO:</span><span id="fileNameLabel" class="val">ODEO_FEB2025_v0_3J1LMET30...</span>
-        <span>|</span>
-        <span>EVENTO:</span><span id="eventLabel" class="val">#0</span>
-        <span id="eventRangeLabel">N EVENTOS: 1</span>
-    </div>
     <div class="nav-controls">
         <input type="file" id="fileInput" style="display:none;" accept=".root">
-        <button class="btn" id="fileBtn">Arquivo</button>
-        <button class="btn" id="uploadBtn">Upload</button>
+        <div class="upload-card">
+            <span class="upload-chip">ROOT</span>
+            <button class="btn" id="fileBtn">Upload ROOT</button>
+        </div>
+        <div class="event-selector" title="Arquivo ROOT ativo para simulacao">
+            <span>ARQUIVO ATIVO</span>
+            <select id="rootFileSelect" class="root-selector">
+                <option value="">--</option>
+            </select>
+        </div>
         <div class="event-selector"><span>EVENTO</span><input id="eventoInput" type="number" min="0" value="0"></div>
         <div class="event-selector"><span>N</span><input id="numInput" type="number" min="1" value="1"></div>
         <button class="btn" id="simBtn">Simular</button>
+        <button class="btn" id="siliconBtn">Placas Si: ON</button>
         <button class="btn" id="rotBtn">Pausar Rotacao</button>
     </div>
 </div>
+<div id="errorBanner" class="error-banner"></div>
 
 <div class="container">
     <div class="col-left">
@@ -69,12 +81,12 @@
     </div>
     <div class="col-center">
         <div class="panel" style="flex:1; border:1px solid #38bdf8;">
-            <div class="panel-header"><span>Camara de Colisão 3D</span><span id="statusLabel">AGUARDANDO</span></div>
+            <div class="panel-header"><span>Câmara de Colisão 3D</span><span id="statusLabel">AGUARDANDO</span></div>
             <div id="main3d" class="plot-container"></div>
         </div>
     </div>
     <div class="col-right">
-        <div class="panel">
+        <div class="panel" style="flex:0 0 300px;">
             <div class="panel-header">Composição</div>
             <div class="leg-item"><div><span class="dot" style="background:#01ae18;"></span>Muon</div><div id="cMuon" class="kpi-val">0</div></div>
             <div class="leg-item"><div><span class="dot" style="background:#0800ff;"></span>Eletron</div><div id="cEle" class="kpi-val">0</div></div>
@@ -82,9 +94,9 @@
             <div class="leg-item"><div><span class="dot" style="background:#8d0081;"></span>Tau</div><div id="cTau" class="kpi-val">0</div></div>
             <div class="leg-item"><div><span class="dot" style="background:#ff0000;"></span>Jet</div><div id="cJet" class="kpi-val">0</div></div>
             <div class="leg-item"><div><span class="dot" style="background:#00fbff;"></span>MET</div><div id="cMet" class="kpi-val">0</div></div>
-            <div id="pizzaPlotMini" style="height:110px;"></div>
+            <div id="pizzaPlotMini" style="height:86px;"></div>
         </div>
-        <div class="panel" style="flex:1;">
+        <div class="panel" style="flex:1; min-height:360px;">
             <div class="panel-header">Mapa eta-phi</div>
             <div id="heatmapPlot" class="plot-container"></div>
         </div>
