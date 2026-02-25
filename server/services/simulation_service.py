@@ -38,6 +38,21 @@ def build_simulation_from_root(file_path, start_event=0, n_events=1):
 
     # Define o intervalo de eventos a serem processados.
     total_events = len(df)
+    if total_events <= 0:
+        raise ValueError("O arquivo ROOT nao possui eventos para simulacao.")
+
+    if start_event < 0:
+        raise ValueError("start_event deve ser maior ou igual a 0.")
+
+    if n_events <= 0:
+        raise ValueError("num_events deve ser maior ou igual a 1.")
+
+    if start_event >= total_events:
+        raise IndexError(
+            f"Evento inicial {start_event} fora do intervalo. "
+            f"Eventos disponiveis: 0 ate {total_events - 1}."
+        )
+
     end_event = min(start_event + n_events, total_events)
 
     print("Eventos no arquivo:", total_events)
@@ -59,6 +74,7 @@ def build_simulation_from_root(file_path, start_event=0, n_events=1):
     return {
         "start_event": start_event,
         "n_events": end_event - start_event,
+        "total_events": total_events,
         "objects": all_objects,
         "event_summaries": event_summaries,
     }

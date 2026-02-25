@@ -1,8 +1,10 @@
 from flask import request, jsonify
 import os
 from services.simulation_service import build_simulation_from_root
+from services.upload_service import get_active_root
 from utils.json_utils import to_json_safe
 from utils.plot_builder import build_collision_figure
+
 
 def simulate_event():
     data = request.get_json(silent=True) or {}
@@ -10,7 +12,6 @@ def simulate_event():
     start_event = data.get("start_event", 0)
     n_events = data.get("num_events", 1)
 
-    # fallback seguro para None/NaN/strings invalidas
     try:
         start_event = int(start_event)
     except (TypeError, ValueError):
@@ -26,23 +27,45 @@ def simulate_event():
     if start_event < 0:
         start_event = 0
 
-    # Para desenvolvimento, estamos usando um caminho fixo. Em produção, isso deve ser dinâmico.
-    file_path = os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "..",
-            "uploads",
-            "mc_410219.ttmumu.4lep.root",
-        )
-    )
+    active = get_active_root()
+    file_path = active.get("path")
     if not file_path:
-        return jsonify({"error": "Nenhum arquivo ROOT foi enviado ainda."}), 400
+        return jsonify({
+            "error": "Nenhum arquivo ROOT foi enviado ainda.",
+            "error_code": "ROOT_NOT_FOUND"
+        }), 400
+    if not os.path.exists(file_path):
+        return jsonify({
+            "error": "O arquivo ROOT ativo nao existe mais no disco.",
+            "error_code": "ROOT_MISSING_ON_DISK"
+        }), 404
 
-    result = build_simulation_from_root(
-        file_path=file_path,
-        start_event=start_event,
-        n_events=n_events
-    )
+    try:
+        result = build_simulation_from_root(
+            file_path=file_path,
+            start_event=start_event,
+            n_events=n_events
+        )
+    except IndexError as exc:
+        return jsonify({
+            "error": str(exc),
+            "error_code": "EVENT_OUT_OF_RANGE"
+        }), 422
+    except (ValueError, KeyError) as exc:
+        return jsonify({
+            "error": str(exc),
+            "error_code": "INVALID_SIMULATION_INPUT"
+        }), 400
+    except FileNotFoundError:
+        return jsonify({
+            "error": "Nao foi possivel abrir o arquivo ROOT ativo.",
+            "error_code": "ROOT_OPEN_ERROR"
+        }), 404
+    except Exception:
+        return jsonify({
+            "error": "Erro interno ao processar simulacao.",
+            "error_code": "SIMULATION_INTERNAL_ERROR"
+        }), 500
 
     safe_result = to_json_safe(result)
     return build_collision_figure(safe_result)

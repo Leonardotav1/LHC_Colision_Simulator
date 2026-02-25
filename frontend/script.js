@@ -3,11 +3,63 @@ let controls = null;
 let renderer = null;
 let animationId = null;
 let isRotating = true;
+let isSiliconVisible = true;
+let siliconGroupRef = null;
+
+function showError(message) {
+    const banner = document.getElementById("errorBanner");
+    if (!banner) return;
+    banner.textContent = message;
+    banner.classList.add("show");
+}
+
+function clearError() {
+    const banner = document.getElementById("errorBanner");
+    if (!banner) return;
+    banner.textContent = "";
+    banner.classList.remove("show");
+}
+
+async function parseApiError(res, fallbackMessage) {
+    let payload = null;
+    try {
+        payload = await res.json();
+    } catch (_) {
+        payload = null;
+    }
+    const message = payload?.error || `${fallbackMessage} (${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    err.code = payload?.error_code || null;
+    throw err;
+}
 
 function setStatus(text, color = "#facc15") {
     const el = document.getElementById("statusLabel");
     el.textContent = text;
     el.style.color = color;
+}
+
+function updateSiliconButton() {
+    const btn = document.getElementById("siliconBtn");
+    if (!btn) return;
+    btn.textContent = isSiliconVisible ? "Placas Si: ON" : "Placas Si: OFF";
+    btn.style.color = isSiliconVisible ? "#38bdf8" : "#facc15";
+    btn.style.borderColor = isSiliconVisible ? "#38bdf8" : "#facc15";
+}
+
+function toggleSiliconPlates() {
+    isSiliconVisible = !isSiliconVisible;
+    if (siliconGroupRef) siliconGroupRef.visible = isSiliconVisible;
+    updateSiliconButton();
+}
+
+function setFileNameLabel(filename) {
+    const el = document.getElementById("fileNameLabel");
+    if (!el) return;
+    const text = filename || "aguardando ROOT...";
+    el.textContent = text;
+    el.title = text;
 }
 
 function toggleRotation() {
@@ -78,7 +130,6 @@ function updateStats(objects) {
 // A função configura o layout dos gráficos, cria as traces para cada tipo de gráfico e os renderiza nos elementos HTML correspondentes.
 function drawPlots(objects, counts) {
 
-    // Configura o layout comum para os gráficos, definindo as cores de fundo, a cor e o tamanho da fonte, e as margens. O layout é usado como base para os gráficos de radar, pizza e heatmap, garantindo uma aparência consistente entre eles.
     const layout = {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor: "rgba(0,0,0,0)",
@@ -94,58 +145,100 @@ function drawPlots(objects, counts) {
         }
     };
 
-    // Cria as traces para o gráfico de radar, mapeando os objetos para um formato adequado para a visualização. 
-    // Para cada objeto, extrai as coordenadas x e y da trajetória (se disponível) e configura as propriedades de estilo, como cor e largura da linha. 
-    // As traces são configuradas para serem do tipo "scatter" com modo "lines", e o hoverinfo é desativado para evitar informações de tooltip ao passar o mouse sobre as linhas.
-    const polarTraces = objects.slice(0, 80).map((o) => {
-        const x = (o.trajectory || []).map((p) => p[0]);
-        const y = (o.trajectory || []).map((p) => p[1]);
-        return {
+    const styleByType = {
+        muon: { color: "#01ae18", name: "Muons" },
+        electron: { color: "#0800ff", name: "Eletrons" },
+        photon: { color: "#ffff00", name: "Fotons" },
+        tau: { color: "#8d0081", name: "Tau" },
+        jet: { color: "#ff0000", name: "Jatos" },
+        met: { color: "#00fbff", name: "MET" }
+    };
+
+    const maxRxy = Math.max(0, ...objects.flatMap((o) => (o.trajectory || []).map((p) => Math.hypot(p[0], p[1]))));
+    const radarExtent = Math.min(15, Math.max(6, maxRxy * 1.25 || 6));
+    const legendSeen = new Set();
+    const polarTraces = [];
+
+    for (const o of objects.slice(0, 120)) {
+        const traj = o.trajectory || [];
+        if (traj.length < 2) continue;
+        const x = traj.map((p) => p[0]);
+        const y = traj.map((p) => p[1]);
+        const particleStyle = styleByType[o.type] || { color: o.color || "#ffffff", name: o.type || "Particula" };
+        const isMet = o.type === "met";
+        const key = o.type || "other";
+
+        polarTraces.push({
             x,
             y,
             mode: "lines",
-            line: {
-                color: o.color || "#ffffff",
-                width: 1
-            },
             type: "scatter",
-            hoverinfo: "skip",
-            showlegend: false
-        };
-    });
+            name: particleStyle.name,
+            legendgroup: key,
+            showlegend: !legendSeen.has(key),
+            line: {
+                color: particleStyle.color,
+                width: isMet ? 2.4 : 1.4,
+                dash: isMet ? "dashdot" : "solid"
+            },
+            opacity: o.type === "jet" ? 0.72 : 0.92,
+            hovertemplate: particleStyle.name + "<br>x: %{x:.2f} cm<br>y: %{y:.2f} cm<extra></extra>"
+        });
+        legendSeen.add(key);
+    }
 
     polarTraces.push({
         x: [0],
         y: [0],
         mode: "markers",
+        type: "scatter",
         marker: {
-            color: "#fff",
-            size: 4
+            color: "#ffffff",
+            size: 5,
+            symbol: "cross"
         },
         showlegend: false,
         hoverinfo: "skip"
     });
 
-    Plotly.newPlot("radarPlot", polarTraces,
-        {
-            ...layout,
-            margin: {
-                t: 10,
-                l: 10,
-                r: 10,
-                b: 10
-            },
-            xaxis: {
-                visible: false,
-                scaleanchor: "y"
-            },
-            yaxis: {
-                visible: false
-            }
+    Plotly.newPlot("radarPlot", polarTraces, {
+        ...layout,
+        dragmode: "pan",
+        margin: { t: 10, l: 10, r: 10, b: 62 },
+        showlegend: true,
+        legend: {
+            orientation: "h",
+            x: 0.5,
+            xanchor: "center",
+            y: -0.12,
+            yanchor: "top",
+            font: { color: "#94a3b8", size: 10 },
+            bgcolor: "rgba(0,0,0,0)"
         },
-        { displayModeBar: false },
-        
-    );
+        xaxis: {
+            visible: false,
+            range: [-radarExtent, radarExtent],
+            scaleanchor: "y",
+            scaleratio: 1
+        },
+        yaxis: {
+            visible: false,
+            range: [-radarExtent, radarExtent]
+        },
+        shapes: [
+            { type: "line", x0: -radarExtent, y0: 0, x1: radarExtent, y1: 0, line: { color: "rgba(148,163,184,0.20)", width: 1 } },
+            { type: "line", x0: 0, y0: -radarExtent, x1: 0, y1: radarExtent, line: { color: "rgba(148,163,184,0.20)", width: 1 } },
+            { type: "circle", x0: -radarExtent * 0.22, y0: -radarExtent * 0.22, x1: radarExtent * 0.22, y1: radarExtent * 0.22, line: { color: "#334155", width: 1, dash: "dot" } },
+            { type: "circle", x0: -radarExtent * 0.56, y0: -radarExtent * 0.56, x1: radarExtent * 0.56, y1: radarExtent * 0.56, line: { color: "rgba(56,189,248,0.55)", width: 1 } },
+            { type: "circle", x0: -radarExtent * 0.90, y0: -radarExtent * 0.90, x1: radarExtent * 0.90, y1: radarExtent * 0.90, line: { color: "#0f172a", width: 3 } }
+        ]
+    }, {
+        displayModeBar: true,
+        responsive: true,
+        scrollZoom: true,
+        modeBarButtonsToRemove: ["select2d", "lasso2d", "autoScale2d", "hoverClosestCartesian", "hoverCompareCartesian"],
+        displaylogo: false
+    });
 
     Plotly.newPlot("pizzaPlotMini", [{
         values: [
@@ -189,7 +282,7 @@ function drawPlots(objects, counts) {
         x: eta,
         y: phi,
         type: "histogram2dcontour",
-        ncontours: 14,
+        ncontours: 20,
         colorscale: [
             [0.00, "#1b2a6b"],
             [0.18, "#1c4fa3"],
@@ -202,15 +295,16 @@ function drawPlots(objects, counts) {
         ],
         contours: { showlines: false, coloring: "fill" },
         line: { width: 0.5, color: "rgba(255,255,255,0.15)" },
+        zsmooth: "best",
         colorbar: {
             title: { text: "GeV", side: "left", font: { color: "#38bdf8", size: 13 } },
             orientation: "h",
-            x: 0.3,
+            x: 0.5,
             xanchor: "center",
-            y: -0.32,
+            y: -0.33,
             yanchor: "top",
-            len: 1,
-            thickness: 10,
+            len: 0.82,
+            thickness: 11,
             tickfont: { color: "#7dd3fc", size: 11 },
             outlinecolor: "#1e3a8a",
             outlinewidth: 1
@@ -220,26 +314,35 @@ function drawPlots(objects, counts) {
     }],
         {
             ...layout,
-            margin: { t: 6, l: 45, r: 12, b: 65 },
+            margin: { t: 8, l: 60, r: 16, b: 86 },
             plot_bgcolor: "rgba(6,18,46,0.65)",
             xaxis: {
-                title: "Pseudorapidez (η)",
+                title: { text: "Pseudorapidez (eta)", standoff: 18 },
+                automargin: true,
                 gridcolor: "rgba(56,189,248,0.12)",
                 zeroline: true,
                 zerolinecolor: "rgba(255,255,255,0.20)",
-                range: [-3.5, 3.5]
+                range: [-4.2, 4.2]
             },
             yaxis: {
-                title: "Ângulo (φ)",
+                title: { text: "Angulo (phi)", standoff: 14 },
+                automargin: true,
                 gridcolor: "rgba(56,189,248,0.12)",
                 zeroline: true,
                 zerolinecolor: "rgba(255,255,255,0.20)",
-                range: [-4.5, 4.5]
+                range: [-5.0, 5.0]
             }
         },
-        { displayModeBar: false }
+        {
+            displayModeBar: true,
+            responsive: true,
+            scrollZoom: true,
+            modeBarButtonsToRemove: ["select2d", "lasso2d", "hoverClosestCartesian", "hoverCompareCartesian"],
+            displaylogo: false
+        }
     );
 }
+
 
 function toHex(c) { return Number(String(c || "#ffffff").replace("#", "0x")); }
 
@@ -277,7 +380,7 @@ function draw3D(objects) {
     scene.add(new THREE.GridHelper(50, 50, 0x1e293b, 0x0f172a));
 
     // Definindo dimensões do tubo e características para ajuste das trajetórias
-    const tubeLen = 60;
+    const tubeLen = 40;
     const half = tubeLen / 2;
     const tuboRaioInterno = 3.0;
     const margemInterna = 0.15;
@@ -314,6 +417,44 @@ function draw3D(objects) {
     scene.add(pipe);
     scene.add(criarCamada(3.0, 4.0, 0x1e293b, 0.95, false));
     scene.add(criarCamada(4.5, 5.5, 0x0f172a, 1.0, false));
+
+    // Emissores brancos nas pontas do tubo.
+    const emitterGeo = new THREE.CylinderGeometry(0.5, 0.5, 3, 16);
+    emitterGeo.rotateX(Math.PI / 2);
+    const emitterMat = new THREE.MeshPhongMaterial({ color: 0xffffff, shininess: 110 });
+    const emitterFront = new THREE.Mesh(emitterGeo, emitterMat);
+    const emitterBack = new THREE.Mesh(emitterGeo, emitterMat);
+    emitterFront.position.set(0, 0, (tubeLen / 2) - 1);
+    emitterBack.position.set(0, 0, (-tubeLen / 2) + 1);
+    scene.add(emitterFront);
+    scene.add(emitterBack);
+
+    // Placas de silicio (duas camadas) no interior do detector.
+    const siliconGroup = new THREE.Group();
+    const siliconYellowMat = new THREE.MeshPhongMaterial({ color: 0xfacc15, side: THREE.DoubleSide, shininess: 100 });
+    const siliconGreenMat = new THREE.MeshPhongMaterial({ color: 0x4ade80, side: THREE.DoubleSide, shininess: 55 });
+    for (let i = 0; i < 150; i++) {
+        let theta = Math.random() * Math.PI * 2;
+        if (theta > Math.PI / 4 && theta < (3 * Math.PI) / 4) continue;
+        const zPos = (Math.random() - 0.5) * Math.min(25, tubeLen - 4);
+
+        if (i % 2 === 0) {
+            const r = 0.8 + Math.random() * 0.7;
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.6), siliconYellowMat);
+            plate.position.set(r * Math.cos(theta), r * Math.sin(theta), zPos);
+            plate.lookAt(0, 0, zPos);
+            siliconGroup.add(plate);
+        } else {
+            const r = 1.8 + Math.random() * 0.7;
+            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.05), siliconGreenMat);
+            plate.position.set(r * Math.cos(theta), r * Math.sin(theta), zPos);
+            plate.lookAt(0, 0, zPos);
+            siliconGroup.add(plate);
+        }
+    }
+    siliconGroup.visible = isSiliconVisible;
+    scene.add(siliconGroup);
+    siliconGroupRef = siliconGroup;
 
     const particleGeo = new THREE.SphereGeometry(0.22, 20, 20);
     const particleMatA = new THREE.MeshPhongMaterial({ color: 0x38bdf8, emissive: 0x0a5f7a, shininess: 90 });
@@ -421,16 +562,71 @@ async function uploadArquivo() {
     const input = document.getElementById("fileInput");
     const file = input.files?.[0];
     if (!file) return;
-    setStatus("UPLOAD...");
+    setStatus("ENVIANDO ROOT...");
     const body = new FormData(); body.append("file", file);
     const res = await fetch(`${SERVER_URL}/upload/`, { method: "POST", body });
+    if (!res.ok) await parseApiError(res, "Falha no upload");
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `upload ${res.status}`);
-    document.getElementById("fileNameLabel").textContent = data.filename || file.name;
+    setFileNameLabel(data.filename || file.name);
+    input.value = "";
+    await carregarArquivosRoot();
+    await carregarRootAtivo();
+}
+
+async function carregarArquivosRoot() {
+    const select = document.getElementById("rootFileSelect");
+    if (!select) return;
+    const res = await fetch(`${SERVER_URL}/upload/files`);
+    if (!res.ok) await parseApiError(res, "Falha ao listar arquivos ROOT");
+    const data = await res.json();
+    const files = Array.isArray(data.files) ? data.files : [];
+    const active = data.active_filename || "";
+    select.innerHTML = "";
+    if (files.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "-- sem arquivos --";
+        select.appendChild(opt);
+        return;
+    }
+    for (const f of files) {
+        const opt = document.createElement("option");
+        opt.value = f.filename;
+        opt.textContent = f.filename;
+        if (f.filename === active) opt.selected = true;
+        select.appendChild(opt);
+    }
+}
+
+async function carregarRootAtivo() {
+    const res = await fetch(`${SERVER_URL}/upload/active`);
+    if (!res.ok) await parseApiError(res, "Falha ao obter ROOT ativo");
+    const data = await res.json();
+    if (data?.active_filename) {
+        setFileNameLabel(data.active_filename);
+    }
+}
+
+async function aplicarRootSelecionado() {
+    const select = document.getElementById("rootFileSelect");
+    const filename = select?.value;
+    if (!filename) return;
+    setStatus("ALTERANDO ROOT...");
+    const res = await fetch(`${SERVER_URL}/upload/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename })
+    });
+    if (!res.ok) await parseApiError(res, "Falha ao selecionar ROOT");
+    const data = await res.json();
+    setFileNameLabel(data.active_filename || filename);
+    setStatus("ROOT ATIVO: " + (data.active_filename || filename), "#4ade80");
+    await carregarDoBackend();
 }
 
 // Função para simular evento, obter dados do backend e atualizar visualizações
 async function simularEvento() {
+    clearError();
     // variavel para obter o número do evento inicial a partir do input, com valor padrão 0
     const start = Number(document.getElementById("eventoInput").value || 0);
 
@@ -438,8 +634,10 @@ async function simularEvento() {
     const num = Math.max(1, Number(document.getElementById("numInput").value || 1));
 
     // atualiza os labels na interface para refletir o evento inicial e o número de eventos, e define o status para "SIMULANDO..."
-    document.getElementById("eventLabel").textContent = `#${start}`;
-    document.getElementById("eventRangeLabel").textContent = `N EVENTOS: ${num}`;
+    const eventLabel = document.getElementById("eventLabel");
+    const eventRangeLabel = document.getElementById("eventRangeLabel");
+    if (eventLabel) eventLabel.textContent = `#${start}`;
+    if (eventRangeLabel) eventRangeLabel.textContent = `N EVENTOS: ${num}`;
     setStatus("SIMULANDO...");
 
     // faz uma requisição POST para o endpoint /simulate/ do backend, enviando o evento inicial e o número de eventos como JSON no corpo da requisição.
@@ -449,7 +647,7 @@ async function simularEvento() {
         body: JSON.stringify({ start_event: start, num_events: num })
     });
 
-    if (!res.ok) throw new Error(`simulate ${res.status}`);
+    if (!res.ok) await parseApiError(res, "Falha ao simular evento");
 
     const fig = JSON.parse(await res.text());
     const objects = parseObjects(fig);
@@ -464,14 +662,44 @@ async function carregarDoBackend() {
         setStatus("SISTEMA ONLINE", "#4ade80");
     } catch (e) {
         console.error(e);
+        showError(e.message || "Erro inesperado no backend.");
         setStatus("ERRO BACKEND", "#ef4444");
     }
 }
 
 document.getElementById("fileBtn").addEventListener("click", () => document.getElementById("fileInput").click());
-document.getElementById("uploadBtn").addEventListener("click", async () => {
-    try { await uploadArquivo(); setStatus("UPLOAD OK", "#4ade80"); } catch (e) { console.error(e); setStatus("UPLOAD ERRO", "#ef4444"); }
+document.getElementById("fileInput").addEventListener("change", async () => {
+    try {
+        clearError();
+        await uploadArquivo();
+        setStatus("UPLOAD OK", "#4ade80");
+    } catch (e) {
+        console.error(e);
+        showError(e.message || "Erro no upload.");
+        setStatus("UPLOAD ERRO", "#ef4444");
+    }
+});
+document.getElementById("rootFileSelect").addEventListener("change", async () => {
+    try {
+        clearError();
+        await aplicarRootSelecionado();
+    } catch (e) {
+        console.error(e);
+        showError(e.message || "Erro ao trocar arquivo ROOT.");
+        setStatus("ERRO AO TROCAR ROOT", "#ef4444");
+    }
 });
 document.getElementById("simBtn").addEventListener("click", carregarDoBackend);
+document.getElementById("siliconBtn").addEventListener("click", toggleSiliconPlates);
 document.getElementById("rotBtn").addEventListener("click", toggleRotation);
-window.onload = () => setTimeout(carregarDoBackend, 600);
+window.onload = () => setTimeout(async () => {
+    try {
+        await carregarArquivosRoot();
+        await carregarRootAtivo();
+    } catch (e) {
+        console.error(e);
+        showError(e.message || "Falha ao inicializar arquivos ROOT.");
+    }
+    updateSiliconButton();
+    await carregarDoBackend();
+}, 600);
