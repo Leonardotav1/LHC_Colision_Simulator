@@ -1,4 +1,5 @@
-from flask import current_app, request, jsonify
+from flask import request, jsonify
+import os
 from services.simulation_service import build_simulation_from_root
 from utils.json_utils import to_json_safe
 from utils.plot_builder import build_collision_figure
@@ -26,7 +27,14 @@ def simulate_event():
         start_event = 0
 
     # Para desenvolvimento, estamos usando um caminho fixo. Em produção, isso deve ser dinâmico.
-    file_path = "uploads/ODEO_FEB2025_v0_3J1LMET30_mc_301204.Pythia8EvtGen_A14MSTW2008LO_Zprime_NoInt_ee_SSM3000.3J1LMET30.root"
+    file_path = os.path.abspath(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "uploads",
+            "mc_410219.ttmumu.4lep.root",
+        )
+    )
     if not file_path:
         return jsonify({"error": "Nenhum arquivo ROOT foi enviado ainda."}), 400
 

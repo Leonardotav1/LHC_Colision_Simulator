@@ -231,15 +231,23 @@ def build_objects_from_event(event):
             reco_px += pt_reco * np.cos(phi)
             reco_py += pt_reco * np.sin(phi)
 
-    # MET reconstructed from visible reco objects
+    # MET reconstructed from visible reco objects.
+    # If reco MET is ~zero, fallback to MET stored in the ROOT event.
     met_reco_px = -reco_px
     met_reco_py = -reco_py
     met_reco_gev = float(np.hypot(met_reco_px, met_reco_py))
     met_reco_phi = float(np.arctan2(met_reco_py, met_reco_px))
 
-    if met_reco_gev > 0:
-        direction = (np.cos(met_reco_phi), np.sin(met_reco_phi), 0.0)
-        traj = straight_trajectory(direction, length=met_reco_gev * MET_SCALE_CM_PER_GEV, steps=70)
+    input_met_gev = float(event.get("met", 0.0))
+    input_met_phi = float(event.get("met_phi", 0.0))
+
+    use_input_met = met_reco_gev <= 1e-6 and input_met_gev > 0.0
+    met_draw_gev = input_met_gev if use_input_met else met_reco_gev
+    met_draw_phi = input_met_phi if use_input_met else met_reco_phi
+
+    if met_draw_gev > 0.0:
+        direction = (np.cos(met_draw_phi), np.sin(met_draw_phi), 0.0)
+        traj = straight_trajectory(direction, length=met_draw_gev * MET_SCALE_CM_PER_GEV, steps=70)
         traj, stop_reason = clip_trajectory_to_cylinder(
             traj,
             radius_cm=CALO_RADIUS_CM,
@@ -254,13 +262,13 @@ def build_objects_from_event(event):
                 "color": "#00fbff",
                 "stop_reason": stop_reason,
                 "reco": {
-                    "met_gev": {"nominal": met_reco_gev},
-                    "phi": met_reco_phi,
+                    "met_gev": {"nominal": met_draw_gev},
+                    "phi": met_draw_phi,
+                    "source": "input" if use_input_met else "reco",
                 },
             }
         )
 
-    input_met_gev = float(event.get("met", 0.0))
     summary = {
         "input_met_gev": input_met_gev,
         "reco_met_gev": met_reco_gev,
