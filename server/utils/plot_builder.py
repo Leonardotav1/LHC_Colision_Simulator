@@ -3,11 +3,16 @@ import numpy as np
 import plotly.graph_objs as go
 import plotly.utils
 from simulations.constants import (
+    B_FIELD_T,
     BEAM_Z_CM,
     MIN_AXIS_LIMIT_CM,
     AXIS_PADDING,
     TRACKER_RADIUS_CM,
     TRACKER_HALF_Z_CM,
+    ECAL_RADIUS_CM,
+    ECAL_HALF_Z_CM,
+    HCAL_RADIUS_CM,
+    HCAL_HALF_Z_CM,
     CALO_RADIUS_CM,
     CALO_HALF_Z_CM,
     MUON_RADIUS_CM,
@@ -188,6 +193,23 @@ def build_collision_figure(event_data):
 
     layout = go.Layout(
         title=_build_title(event_data),
+        meta={
+            "total_events": int(event_data.get("total_events", 0)),
+            "start_event": int(event_data.get("start_event", 0)),
+            "n_events": int(event_data.get("n_events", 0)),
+            "event_summaries": event_data.get("event_summaries", []),
+            "magnetic_field_t": float(B_FIELD_T),
+            "geometry_cm": {
+                "tracker_radius": float(TRACKER_RADIUS_CM),
+                "tracker_half_z": float(TRACKER_HALF_Z_CM),
+                "ecal_radius": float(ECAL_RADIUS_CM),
+                "ecal_half_z": float(ECAL_HALF_Z_CM),
+                "hcal_radius": float(HCAL_RADIUS_CM),
+                "hcal_half_z": float(HCAL_HALF_Z_CM),
+                "muon_radius": float(MUON_RADIUS_CM),
+                "muon_half_z": float(MUON_HALF_Z_CM),
+            },
+        },
         scene=dict(
             xaxis=dict(
                 title="x [cm]",

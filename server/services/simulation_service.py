@@ -4,13 +4,16 @@ from simulations.constants import (
     MEV_TO_GEV,
     M_TO_CM,
     PHOTON_LENGTH_CM,
-    TAU_LENGTH_CM,
     JET_LENGTH_CM,
     MET_SCALE_CM_PER_GEV,
     TRACKER_RADIUS_CM,
     TRACKER_HALF_Z_CM,
-    CALO_RADIUS_CM,
-    CALO_HALF_Z_CM,
+    ECAL_RADIUS_CM,
+    ECAL_HALF_Z_CM,
+    HCAL_RADIUS_CM,
+    HCAL_HALF_Z_CM,
+    MUON_RADIUS_CM,
+    MUON_HALF_Z_CM,
 )
 from utils.kinemacts import pt_eta_phi_to_xyz
 from utils.trajectories import (
@@ -18,35 +21,58 @@ from utils.trajectories import (
     straight_trajectory,
     short_trajectory,
     clip_trajectory_to_cylinder,
-    trim_trajectory_to_detector,
 )
 from utils.root_reader import read_root_file
 
-# Função auxiliar para envolver phi no intervalo [-pi, pi], aprox [-3.1416, 3.1416].
+ELECTRON_RADIUS_VISUAL_SCALE = 0.45
+MIN_CHARGE_ABS = 1e-9
+
+
 def _wrap_phi(phi):
     return float((phi + np.pi) % (2.0 * np.pi) - np.pi)
 
-# Função auxiliar para aplicar sistemática de pt (aqui apenas retorna o valor nominal, sem variação).
+
 def _pt_systematics(pt_gev, frac):
     return {"nominal": float(pt_gev)}
 
 
-# Função principal para construir a simulação a partir do arquivo ROOT.
+def _deterministic_rng(*values):
+    seed = 0
+    for idx, value in enumerate(values):
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            val = 0.0
+        seed_part = int(abs(val) * (10 ** (idx + 2))) & 0xFFFFFFFF
+        seed = (seed * 1664525 + seed_part + 1013904223) & 0xFFFFFFFF
+    return np.random.default_rng(seed)
+
+
+def _build_jet_fragments(eta, phi, pt_gev, base_length_cm, rng, n_fragments):
+    fragments = []
+    for _ in range(max(1, int(n_fragments))):
+        d_eta = rng.normal(0.0, 0.08)
+        d_phi = rng.normal(0.0, 0.12)
+        frag_eta = float(eta + d_eta)
+        frag_phi = _wrap_phi(float(phi + d_phi))
+        frag_pt = max(0.6, float(pt_gev * rng.uniform(0.12, 0.45)))
+        frag_dir = pt_eta_phi_to_xyz(frag_pt, frag_eta, frag_phi)
+        frag_len = base_length_cm * rng.uniform(0.65, 1.05)
+        fragments.append((frag_dir, frag_pt, frag_eta, frag_phi, frag_len))
+    return fragments
+
+
 def build_simulation_from_root(file_path, start_event=0, n_events=1):
-    # Le o arquivo ROOT e obtem o DataFrame dos eventos.
     df = read_root_file(file_path)
 
-    # Define o intervalo de eventos a serem processados.
     total_events = len(df)
     if total_events <= 0:
         raise ValueError("O arquivo ROOT nao possui eventos para simulacao.")
 
     if start_event < 0:
         raise ValueError("start_event deve ser maior ou igual a 0.")
-
     if n_events <= 0:
         raise ValueError("num_events deve ser maior ou igual a 1.")
-
     if start_event >= total_events:
         raise IndexError(
             f"Evento inicial {start_event} fora do intervalo. "
@@ -55,21 +81,13 @@ def build_simulation_from_root(file_path, start_event=0, n_events=1):
 
     end_event = min(start_event + n_events, total_events)
 
-    print("Eventos no arquivo:", total_events)
-    print("Simulando eventos:", start_event, "ate", end_event - 1)
-
-    # Lista para armazenar todos os objetos gerados.
     all_objects = []
     event_summaries = []
-
-    # Processa cada evento no intervalo especificado.
     for i in range(start_event, end_event):
         event = df.iloc[i]
         objs, summary = build_objects_from_event(event)
         all_objects.extend(objs)
         event_summaries.append(summary)
-
-    print("Total de objetos gerados:", len(all_objects))
 
     return {
         "start_event": start_event,
@@ -80,16 +98,11 @@ def build_simulation_from_root(file_path, start_event=0, n_events=1):
     }
 
 
-# Funcao auxiliar para construir objetos a partir de um evento.
 def build_objects_from_event(event):
-    # Lista para armazenar os objetos do evento.
     objects = []
-
-    # Build reco-like MET from visible objects (without extra noise)
     reco_px = 0.0
     reco_py = 0.0
 
-    # LEPTONS RECONSTRUIDOS
     if event["lep_n"] > 0:
         for pt, eta, phi, ltype, q in zip(
             event["lep_pt"],
@@ -98,38 +111,53 @@ def build_objects_from_event(event):
             event["lep_type"],
             event["lep_charge"],
         ):
-            # Assume pt em MeV no ntuple e converte para GeV.
             pt_gev = float(pt) * MEV_TO_GEV
-            pt_reco = pt_gev
             eta_reco = float(eta)
             phi_reco = _wrap_phi(float(phi))
+            direction = pt_eta_phi_to_xyz(pt_gev, eta_reco, phi_reco)
 
-            direction = pt_eta_phi_to_xyz(pt_reco, eta_reco, phi_reco)
-
-            q_abs = max(abs(q), 1e-9)
-            # R[m] = pT[GeV] / (0.3 * |q| * B[T])
-            radius_m = pt_reco / (0.3 * q_abs * B_FIELD_T)
-            radius_cm = float(np.clip(radius_m * M_TO_CM, 20.0, 1000.0))
-
-            # Approximate axial pitch from eta.
-            pitch_per_turn_cm = float(np.clip(radius_cm * abs(np.sinh(eta_reco)) * 0.5, 8.0, 500.0))
-
-            traj_raw = helical_trajectory(
-                direction,
-                charge=q,
-                radius=radius_cm,
-                pitch_per_turn=pitch_per_turn_cm,
-                turns=4.0,
-                steps=140,
-            )
-            traj, stop_reason = trim_trajectory_to_detector(traj_raw)
+            q_abs = max(abs(q), MIN_CHARGE_ABS)
+            radius_m = pt_gev / (0.3 * q_abs * B_FIELD_T)
 
             if ltype == 11:
                 ptype = "electron"
                 color = "#0800ff"
+                radius_cm = float(np.clip(radius_m * M_TO_CM * ELECTRON_RADIUS_VISUAL_SCALE, 3.0, 55.0))
+                pitch_per_turn_cm = float(np.clip(radius_cm * abs(np.sinh(eta_reco)) * 0.10, 1.0, 22.0))
+                turns = float(np.clip(ECAL_RADIUS_CM / max(radius_cm, 1.0), 4.0, 10.0))
+                traj_raw = helical_trajectory(
+                    direction,
+                    charge=q,
+                    radius=radius_cm,
+                    pitch_per_turn=pitch_per_turn_cm,
+                    turns=turns,
+                    steps=220,
+                )
+                traj, stop_reason = clip_trajectory_to_cylinder(
+                    traj_raw,
+                    radius_cm=ECAL_RADIUS_CM,
+                    half_z_cm=ECAL_HALF_Z_CM,
+                    stop_reason="hit_ecal",
+                )
             elif ltype == 13:
                 ptype = "muon"
                 color = "#01ae18"
+                radius_cm = float(np.clip(radius_m * M_TO_CM, 350.0, 6000.0))
+                pitch_per_turn_cm = float(np.clip(radius_cm * abs(np.sinh(eta_reco)) * 0.95, 80.0, 2500.0))
+                traj_raw = helical_trajectory(
+                    direction,
+                    charge=q,
+                    radius=radius_cm,
+                    pitch_per_turn=pitch_per_turn_cm,
+                    turns=1.4,
+                    steps=220,
+                )
+                traj, stop_reason = clip_trajectory_to_cylinder(
+                    traj_raw,
+                    radius_cm=MUON_RADIUS_CM,
+                    half_z_cm=MUON_HALF_Z_CM,
+                    stop_reason="hit_muon_system",
+                )
             else:
                 continue
 
@@ -140,35 +168,30 @@ def build_objects_from_event(event):
                     "color": color,
                     "stop_reason": stop_reason,
                     "reco": {
-                        "pt_gev": _pt_systematics(pt_reco, 0.0),
-                        "eta": float(eta_reco),
-                        "phi": float(phi_reco),
+                        "pt_gev": _pt_systematics(pt_gev, 0.0),
+                        "eta": eta_reco,
+                        "phi": phi_reco,
                         "charge": int(q),
                     },
                 }
             )
 
-            reco_px += pt_reco * np.cos(phi_reco)
-            reco_py += pt_reco * np.sin(phi_reco)
+            reco_px += pt_gev * np.cos(phi_reco)
+            reco_py += pt_gev * np.sin(phi_reco)
 
-    # FOTONS
     if event["photon_n"] > 0:
-        for pt, eta, phi in zip(
-            event["photon_pt"],
-            event["photon_eta"],
-            event["photon_phi"],
-        ):
+        for pt, eta, phi in zip(event["photon_pt"], event["photon_eta"], event["photon_phi"]):
             pt_gev = float(pt) * MEV_TO_GEV
-            pt_reco = pt_gev
-            direction = pt_eta_phi_to_xyz(pt_reco, eta, phi)
+            eta = float(eta)
+            phi = _wrap_phi(float(phi))
+            direction = pt_eta_phi_to_xyz(pt_gev, eta, phi)
 
-            # Limit photon trajectories at the calorimeter envelope.
             full_traj = straight_trajectory(direction, length=PHOTON_LENGTH_CM, steps=90)
             traj, stop_reason = clip_trajectory_to_cylinder(
                 full_traj,
-                radius_cm=CALO_RADIUS_CM,
-                half_z_cm=CALO_HALF_Z_CM,
-                stop_reason="hit_calo",
+                radius_cm=ECAL_RADIUS_CM,
+                half_z_cm=ECAL_HALF_Z_CM,
+                stop_reason="hit_ecal",
             )
 
             objects.append(
@@ -177,29 +200,27 @@ def build_objects_from_event(event):
                     "trajectory": traj,
                     "color": "#FFFF00",
                     "stop_reason": stop_reason,
-                    "reco": {"pt_gev": _pt_systematics(pt_reco, 0.0), "eta": float(eta), "phi": float(phi)},
+                    "reco": {"pt_gev": _pt_systematics(pt_gev, 0.0), "eta": eta, "phi": phi},
                 }
             )
+            reco_px += pt_gev * np.cos(phi)
+            reco_py += pt_gev * np.sin(phi)
 
-            reco_px += pt_reco * np.cos(phi)
-            reco_py += pt_reco * np.sin(phi)
-
-    # TAUS
     if event["tau_n"] > 0:
-        for pt, eta, phi in zip(
-            event["tau_pt"],
-            event["tau_eta"],
-            event["tau_phi"],
-        ):
+        for pt, eta, phi in zip(event["tau_pt"], event["tau_eta"], event["tau_phi"]):
             pt_gev = float(pt) * MEV_TO_GEV
+            eta = float(eta)
+            phi = _wrap_phi(float(phi))
             direction = pt_eta_phi_to_xyz(pt_gev, eta, phi)
+            rng = _deterministic_rng(pt_gev, eta, phi, 15.0)
 
-            full_traj = short_trajectory(direction, length=TAU_LENGTH_CM, steps=30)
+            tau_decay_len_cm = float(np.clip(rng.exponential(0.35) + 0.04, 0.04, 1.4))
+            full_traj = short_trajectory(direction, length=tau_decay_len_cm, steps=20)
             traj, stop_reason = clip_trajectory_to_cylinder(
                 full_traj,
                 radius_cm=TRACKER_RADIUS_CM,
                 half_z_cm=TRACKER_HALF_Z_CM,
-                stop_reason="hit_tracker",
+                stop_reason="decay_displaced_vertex",
             )
 
             objects.append(
@@ -208,47 +229,97 @@ def build_objects_from_event(event):
                     "trajectory": traj,
                     "color": "#8d0081",
                     "stop_reason": stop_reason,
-                    "reco": {"pt_gev": _pt_systematics(pt_gev, 0.0), "eta": float(eta), "phi": float(phi)},
+                    "reco": {"pt_gev": _pt_systematics(pt_gev, 0.0), "eta": eta, "phi": phi},
                 }
             )
-
             reco_px += pt_gev * np.cos(phi)
             reco_py += pt_gev * np.sin(phi)
 
-    # JETS
+            if traj:
+                vtx = np.array(traj[-1], dtype=float)
+                for frag_dir, frag_pt, frag_eta, frag_phi, frag_len in _build_jet_fragments(
+                    eta=eta,
+                    phi=phi,
+                    pt_gev=pt_gev,
+                    base_length_cm=HCAL_RADIUS_CM * 0.85,
+                    rng=rng,
+                    n_fragments=2,
+                ):
+                    frag_track = straight_trajectory(frag_dir, length=frag_len, steps=70)
+                    frag_shifted = [(p[0] + vtx[0], p[1] + vtx[1], p[2] + vtx[2]) for p in frag_track]
+                    frag_traj, frag_stop = clip_trajectory_to_cylinder(
+                        frag_shifted,
+                        radius_cm=HCAL_RADIUS_CM,
+                        half_z_cm=HCAL_HALF_Z_CM,
+                        stop_reason="tau_decay_to_hadrons",
+                    )
+                    objects.append(
+                        {
+                            "type": "jet",
+                            "trajectory": frag_traj,
+                            "color": "#ff0000",
+                            "stop_reason": frag_stop,
+                            "reco": {"pt_gev": _pt_systematics(frag_pt, 0.0), "eta": frag_eta, "phi": frag_phi},
+                        }
+                    )
+                    reco_px += frag_pt * np.cos(frag_phi)
+                    reco_py += frag_pt * np.sin(frag_phi)
+
     if event["jet_n"] > 0:
-        for pt, eta, phi in zip(
-            event["jet_pt"],
-            event["jet_eta"],
-            event["jet_phi"],
-        ):
+        for pt, eta, phi in zip(event["jet_pt"], event["jet_eta"], event["jet_phi"]):
             pt_gev = float(pt) * MEV_TO_GEV
-            pt_reco = pt_gev
-            direction = pt_eta_phi_to_xyz(pt_reco, eta, phi)
+            eta = float(eta)
+            phi = _wrap_phi(float(phi))
+            direction = pt_eta_phi_to_xyz(pt_gev, eta, phi)
+            rng = _deterministic_rng(pt_gev, eta, phi, 31.0)
 
             full_traj = straight_trajectory(direction, length=JET_LENGTH_CM, steps=80)
             traj, stop_reason = clip_trajectory_to_cylinder(
                 full_traj,
-                radius_cm=CALO_RADIUS_CM,
-                half_z_cm=CALO_HALF_Z_CM,
-                stop_reason="hit_calo",
+                radius_cm=HCAL_RADIUS_CM,
+                half_z_cm=HCAL_HALF_Z_CM,
+                stop_reason="hit_hcal",
             )
-
             objects.append(
                 {
                     "type": "jet",
                     "trajectory": traj,
                     "color": "#ff0000",
                     "stop_reason": stop_reason,
-                    "reco": {"pt_gev": _pt_systematics(pt_reco, 0.0), "eta": float(eta), "phi": float(phi)},
+                    "reco": {"pt_gev": _pt_systematics(pt_gev, 0.0), "eta": eta, "phi": phi},
                 }
             )
+            reco_px += pt_gev * np.cos(phi)
+            reco_py += pt_gev * np.sin(phi)
 
-            reco_px += pt_reco * np.cos(phi)
-            reco_py += pt_reco * np.sin(phi)
+            n_frags = int(np.clip(2 + pt_gev / 35.0, 2, 5))
+            for frag_dir, frag_pt, frag_eta, frag_phi, frag_len in _build_jet_fragments(
+                eta=eta,
+                phi=phi,
+                pt_gev=pt_gev,
+                base_length_cm=JET_LENGTH_CM,
+                rng=rng,
+                n_fragments=n_frags,
+            ):
+                frag_track = straight_trajectory(frag_dir, length=frag_len, steps=65)
+                frag_traj, frag_stop = clip_trajectory_to_cylinder(
+                    frag_track,
+                    radius_cm=HCAL_RADIUS_CM,
+                    half_z_cm=HCAL_HALF_Z_CM,
+                    stop_reason="hadronic_shower_hcal",
+                )
+                objects.append(
+                    {
+                        "type": "jet",
+                        "trajectory": frag_traj,
+                        "color": "#ff0000",
+                        "stop_reason": frag_stop,
+                        "reco": {"pt_gev": _pt_systematics(frag_pt, 0.0), "eta": frag_eta, "phi": frag_phi},
+                    }
+                )
+                reco_px += frag_pt * np.cos(frag_phi)
+                reco_py += frag_pt * np.sin(frag_phi)
 
-    # MET reconstructed from visible reco objects.
-    # If reco MET is ~zero, fallback to MET stored in the ROOT event.
     met_reco_px = -reco_px
     met_reco_py = -reco_py
     met_reco_gev = float(np.hypot(met_reco_px, met_reco_py))
@@ -256,21 +327,18 @@ def build_objects_from_event(event):
 
     input_met_gev = float(event.get("met", 0.0))
     input_met_phi = float(event.get("met_phi", 0.0))
-
     use_input_met = met_reco_gev <= 1e-6 and input_met_gev > 0.0
     met_draw_gev = input_met_gev if use_input_met else met_reco_gev
     met_draw_phi = input_met_phi if use_input_met else met_reco_phi
 
     if met_draw_gev > 0.0:
         direction = (np.cos(met_draw_phi), np.sin(met_draw_phi), 0.0)
-        traj = straight_trajectory(direction, length=met_draw_gev * MET_SCALE_CM_PER_GEV, steps=70)
-        traj, stop_reason = clip_trajectory_to_cylinder(
-            traj,
-            radius_cm=CALO_RADIUS_CM,
-            half_z_cm=CALO_HALF_Z_CM,
-            stop_reason="hit_calo",
-        )
-
+        # MET representa a direção do momento faltante (partícula invisível),
+        # então o vetor deve atravessar todo o detector e seguir além dele.
+        min_escape_len = MUON_RADIUS_CM * 1.7
+        met_length_cm = max(min_escape_len, met_draw_gev * MET_SCALE_CM_PER_GEV)
+        traj = straight_trajectory(direction, length=met_length_cm, steps=80)
+        stop_reason = "invisible_escape"
         objects.append(
             {
                 "type": "met",
@@ -291,5 +359,4 @@ def build_objects_from_event(event):
         "delta_met_gev": met_reco_gev - input_met_gev,
         "n_objects": len(objects),
     }
-
     return objects, summary
