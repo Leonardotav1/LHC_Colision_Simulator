@@ -5,16 +5,9 @@ import { buildThreeScene } from "./threeRuntime.js";
 import { PARTICLE, PARTICLE_NAMES, PARTICLE_COLORS, PARTICLE_COLORS_DIM } from "../core/constants.js";
 import { state, filteredObjects } from "../core/state.js";
 import {
-  byId,
-  setText,
-  setFileNameLabel,
-  showLoading,
-  hideLoading,
-  syncEventInputBounds,
-  clearError,
-  showError,
-  setStatus,
-  setRootAvailability,
+    byId,
+    setText,
+    syncEventInputBounds,
 } from "../ui/uiHelpers.js";
 import {
     parseObjects,
@@ -24,16 +17,62 @@ import {
     getActiveRootStats,
     simulateFromBackend,
 } from "../services/backend.js";
-import { resetFilters, toggleFilter } from "@/store/simulatorUiSlice.js";
+import { toggleFilter } from "@/store/simulatorUiSlice.js";
+import {
+    clearBanner as clearBannerAction,
+    hideLoading as hideLoadingAction,
+    setFileLabel as setFileLabelAction,
+    setRootAvailability as setRootAvailabilityAction,
+    setStatus as setStatusAction,
+    showBanner as showBannerAction,
+    showLoading as showLoadingAction,
+} from "@/store/appUiSlice.js";
 
+// Runtime orchestrator that connects backend calls, Plotly rendering and Three.js scene updates.
 const SERVER_URL = API_BASE_URL;
 const pNames = PARTICLE_NAMES;
 const pColors = PARTICLE_COLORS;
 const pColorsDim = PARTICLE_COLORS_DIM;
+// Shared reference to Redux store for runtime modules outside React tree.
 let uiStoreRef = null;
 let pendingUploadFile = null;
 const ALL_FILTERS = [0, 1, 2, 3, 4, 5];
 const RESIZE_PLOT_IDS = ["radarPlot", "pizzaPlotMini", "ptDistPlot", "etaDistPlot", "heatmapPlot", "particlePlotXY", "particlePlotRZ"];
+
+function dispatchUi(action) {
+    if (uiStoreRef && typeof uiStoreRef.dispatch === "function") {
+        uiStoreRef.dispatch(action);
+    }
+}
+
+function setUiStatus(text, color = "#facc15") {
+    dispatchUi(setStatusAction({ text, color }));
+}
+
+function setUiFileLabel(name) {
+    dispatchUi(setFileLabelAction(name));
+}
+
+function setUiRootAvailability(hasRootFile, message = "") {
+    state.ui.hasRootFile = !!hasRootFile;
+    dispatchUi(setRootAvailabilityAction({ hasRootFile, message }));
+}
+
+function showUiError(message) {
+    dispatchUi(showBannerAction({ message, level: "error" }));
+}
+
+function clearUiBanner() {
+    dispatchUi(clearBannerAction());
+}
+
+function showUiLoading(message = "Simulando...") {
+    dispatchUi(showLoadingAction({ message }));
+}
+
+function hideUiLoading() {
+    dispatchUi(hideLoadingAction());
+}
 
 function getUiStateSnapshot(ui) {
     return {
@@ -74,11 +113,6 @@ function handleWindowResize() {
     resizePlots();
 }
 
-function handleFullscreenChange() {
-    byId("btn-fs-toggle").textContent = document.fullscreenElement ? "Sair" : "Tela Cheia";
-    byId("fs-hud").style.display = document.fullscreenElement ? "flex" : "none";
-}
-
 function setTotalEvents(total) {
     const totalEl = byId("totalEventosInput");
     if (!totalEl) return;
@@ -88,10 +122,10 @@ function setTotalEvents(total) {
     syncEventInputBounds();
 }
 
-// Função para abrir o modal da partícula
+// Emits event so React modal can render particle details.
 function openParticleModal(particle) {
-  if (!particle) return;
-  window.dispatchEvent(new CustomEvent("particle-modal:open", { detail: particle }));
+    if (!particle) return;
+    window.dispatchEvent(new CustomEvent("particle-modal:open", { detail: particle }));
 }
 
 function updateBackendMeta(meta) {
@@ -139,30 +173,7 @@ function updateStateObjects(objects) {
 }
 
 function applyFiltersToEntireUI() {
-    const allOn = state.activeFilters.length === 6;
-    let html = '<span style="font-size:10px; color:#94a3b8; margin-right:3px;">Exibindo:</span>';
-    if (allOn) {
-        html += '<span class="filter-badge" style="background:rgba(255,255,255,0.12); color:#fff; border-color:rgba(255,255,255,0.35);">Todas as particulas</span>';
-    } else {
-        state.activeFilters.forEach((id) => {
-            html += `<span class="filter-badge" style="background:${pColors[id]}30; color:${pColors[id]}; border-color:${pColors[id]}80;">${pNames[id]}</span>`;
-        });
-    }
-    byId("global-filter-bar").innerHTML = html;
-
-    [0, 1, 2, 3, 4, 5].forEach((id) => {
-        const btn = byId(`hud-btn-${id}`);
-        if (btn) btn.classList.toggle("active", state.activeFilters.includes(id));
-    });
-
-    ["leg-mu", "leg-el", "leg-ph", "leg-ha", "leg-met", "leg-tau"].forEach((id, idx) => {
-        const el = byId(id);
-        if (el) el.classList.toggle("dimmed", !state.activeFilters.includes(idx));
-    });
-
-    if (byId("btnResetFilter")) byId("btnResetFilter").style.display = allOn ? "none" : "inline-block";
-    if (byId("lblClickPizza")) byId("lblClickPizza").style.display = allOn ? "inline-block" : "none";
-    if (byId("filt-alert")) byId("filt-alert").style.display = allOn ? "none" : "inline-block";
+    // React owns visual state for filter badges, tab controls and legend toggles.
     setText("kpi-parts", String(filteredObjects().length));
 
     plotlyEngine.updatePlotVisibility();
@@ -187,16 +198,6 @@ function toggleParticleFilter(typeId) {
         }
     }
     applyFiltersToEntireUI();
-}
-
-function showTab(tabId) {
-    document.querySelectorAll(".tab-content").forEach((el) => el.classList.remove("active"));
-    document.querySelectorAll(".tab-btn").forEach((el) => el.classList.remove("active"));
-    const tab = byId(`tab-${tabId}`);
-    if (tab) tab.classList.add("active");
-    const btn = document.querySelector(`.tab-btn[data-tab="${tabId}"]`);
-    if (btn) btn.classList.add("active");
-    window.dispatchEvent(new Event("resize"));
 }
 
 const plotlyEngine = createPlotlyRuntime({
@@ -239,21 +240,21 @@ export function openFilePicker() {
 
 export async function uploadSelectedFile() {
     try {
-        clearError();
+        clearUiBanner();
         if (!pendingUploadFile) {
             throw new Error("Selecione um arquivo .root antes de fazer upload.");
         }
         await uploadArquivo(pendingUploadFile);
         const stats = await getActiveRootStats(SERVER_URL);
         setTotalEvents(stats.total_events);
-        setRootAvailability(true);
-        setStatus("UPLOAD OK", "#4ade80");
+        setUiRootAvailability(true);
+        setUiStatus("UPLOAD OK", "#4ade80");
         pendingUploadFile = null;
         const input = byId("fileInput");
         if (input) input.value = "";
     } catch (e) {
-        showError(e.message || "Erro no upload");
-        setStatus("UPLOAD ERRO", "#ef4444");
+        showUiError(e.message || "Erro no upload");
+        setUiStatus("UPLOAD ERRO", "#ef4444");
     }
 }
 
@@ -261,15 +262,13 @@ export function runSimulation() {
     return simularEvento().catch((e) => {
         console.error(e);
         const message = e.message || "Erro inesperado no backend.";
-        showError(message);
-        setStatus("ERRO BACKEND", "#ef4444");
+        showUiError(message);
+        setUiStatus("ERRO BACKEND", "#ef4444");
     });
 }
 
 function changeHeatmapLayer(layer) {
     state.currentHeatmapLayer = layer;
-    ["all", "ecal", "hcal"].forEach((k) => byId(`btn-hm-${k}`).classList.remove("active"));
-    byId(`btn-hm-${layer.toLowerCase()}`).classList.add("active");
     plotlyEngine.updateHeatmapDisplay();
 }
 
@@ -286,12 +285,12 @@ async function handleFileInputChange() {
     const file = input?.files?.[0] || null;
     pendingUploadFile = file;
     if (!file) {
-        setStatus("AGUARDANDO ROOT", "#facc15");
+        setUiStatus("AGUARDANDO ROOT", "#facc15");
         return;
     }
-    setFileNameLabel(file.name);
-    clearError();
-    setStatus("ARQUIVO PRONTO PARA UPLOAD", "#38bdf8");
+    setUiFileLabel(file.name);
+    clearUiBanner();
+    setUiStatus("ARQUIVO PRONTO PARA UPLOAD", "#38bdf8");
 }
 
 function applyUiState(ui, prevUi) {
@@ -300,7 +299,6 @@ function applyUiState(ui, prevUi) {
         state.activeFilters = [...current.activeFilters];
         state.currentHeatmapLayer = current.heatmapLayer;
         syncThreeControls(current.controls);
-        showTab(current.activeTab);
         applyFiltersToEntireUI();
         return current;
     }
@@ -309,7 +307,7 @@ function applyUiState(ui, prevUi) {
         state.activeFilters = [...current.activeFilters];
         applyFiltersToEntireUI();
     }
-    if (current.activeTab !== prevUi.activeTab) showTab(current.activeTab);
+    if (current.activeTab !== prevUi.activeTab) window.dispatchEvent(new Event("resize"));
     if (current.heatmapLayer !== prevUi.heatmapLayer) changeHeatmapLayer(current.heatmapLayer);
     if (!objectsEqual(current.controls, prevUi.controls)) syncThreeControls(current.controls);
 
@@ -317,7 +315,7 @@ function applyUiState(ui, prevUi) {
 }
 
 function subscribeUiStore(appStore) {
-    if (!appStore || typeof appStore.subscribe !== "function" || typeof appStore.getState !== "function") return () => {};
+    if (!appStore || typeof appStore.subscribe !== "function" || typeof appStore.getState !== "function") return () => { };
     let prevUi = null;
     const apply = () => {
         const ui = appStore.getState()?.simulatorUi;
@@ -328,12 +326,55 @@ function subscribeUiStore(appStore) {
     return appStore.subscribe(apply);
 }
 
+
+async function uploadArquivo(file) {
+    if (!file) return;
+    setUiStatus("ENVIANDO ROOT...");
+    const data = await uploadRootFile(SERVER_URL, file);
+    setUiFileLabel(data.filename || file.name);
+    state.ui.activeFilename = data.filename || file.name || "";
+}
+
+async function simularEvento() {
+    clearUiBanner();
+    if (!state.ui.hasRootFile) {
+        throw new Error("Nenhum arquivo ROOT carregado. Envie ou selecione um arquivo antes de simular.");
+    }
+    syncEventInputBounds();
+    const start = Number(byId("eventoInput").value || 0);
+    const num = Math.max(1, Number(byId("numInput").value || 1));
+    if (!Number.isFinite(start) || start < 0) {
+        throw new Error("Evento inicial invalido. Informe um numero inteiro maior ou igual a 0.");
+    }
+    if (!Number.isFinite(num) || num < 1) {
+        throw new Error("Quantidade de eventos invalida. Informe um numero inteiro maior ou igual a 1.");
+    }
+    byId("eventLabel").textContent = `#${start}`;
+    byId("eventRangeLabel").textContent = `N EVENTOS: ${num}`;
+    setUiStatus("SIMULANDO...");
+    showUiLoading(`Simulando ${num} evento(s)...`);
+    try {
+        const fig = await simulateFromBackend(SERVER_URL, start, num);
+        updateBackendMeta(fig?.layout?.meta || {});
+        const objects = parseObjects(fig);
+        updateStateObjects(objects);
+        plotlyEngine.renderPlotly();
+        build3DScene();
+        setUiStatus("SISTEMA ONLINE", "#4ade80");
+    } finally {
+        hideUiLoading();
+    }
+}
+
+// Conecta os eventos da UI com as ações do runtime, como upload de arquivos, simulação de eventos e sincronização de estado entre Redux, Plotly e Three.js. 
 function bindUIActions(appStore) {
     uiStoreRef = appStore || null;
+
     const onBeforeUnload = () => {
         clearRootFiles(SERVER_URL, true).catch(() => null);
     };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+
     window.addEventListener("beforeunload", onBeforeUnload);
     byId("fileInput")?.addEventListener("change", handleFileInputChange);
     byId("eventoInput")?.addEventListener("change", syncEventInputBounds);
@@ -344,7 +385,6 @@ function bindUIActions(appStore) {
 
     return () => {
         uiStoreRef = null;
-        document.removeEventListener("fullscreenchange", handleFullscreenChange);
         window.removeEventListener("beforeunload", onBeforeUnload);
         byId("fileInput")?.removeEventListener("change", handleFileInputChange);
         byId("eventoInput")?.removeEventListener("change", syncEventInputBounds);
@@ -353,53 +393,23 @@ function bindUIActions(appStore) {
         if (typeof unsubscribe === "function") unsubscribe();
     };
 }
-async function uploadArquivo(file) {
-    if (!file) return;
-    setStatus("ENVIANDO ROOT...");
-    const data = await uploadRootFile(SERVER_URL, file);
-    setFileNameLabel(data.filename || file.name);
-    state.ui.activeFilename = data.filename || file.name || "";
-}
 
-async function simularEvento() {
-    clearError();
-    if (!state.ui.hasRootFile) {
-        throw new Error("Nenhum arquivo ROOT carregado. Envie ou selecione um arquivo antes de simular.");
-    }
-    syncEventInputBounds();
-    const start = Number(byId("eventoInput").value || 1);
-    const num = Math.max(1, Number(byId("numInput").value || 1));
-    if (!Number.isFinite(start) || start < 1) {
-        throw new Error("Evento inicial invalido. Informe um numero inteiro maior ou igual a 1.");
-    }
-    if (!Number.isFinite(num) || num < 1) {
-        throw new Error("Quantidade de eventos invalida. Informe um numero inteiro maior ou igual a 1.");
-    }
-    byId("eventLabel").textContent = `#${start}`;
-    byId("eventRangeLabel").textContent = `N EVENTOS: ${num}`;
-    setStatus("SIMULANDO...");
-    showLoading(`Simulando ${num} evento(s)...`);
-    try {
-        const fig = await simulateFromBackend(SERVER_URL, start, num);
-        updateBackendMeta(fig?.layout?.meta || {});
-        const objects = parseObjects(fig);
-        updateStateObjects(objects);
-        plotlyEngine.renderPlotly();
-        build3DScene();
-        setStatus("SISTEMA ONLINE", "#4ade80");
-    } finally {
-        hideLoading();
-    }
-}
-
+// Inicializa o runtime da aplicação, configurando conexões com o backend, preparando o ambiente de visualização e sincronizando o estado da UI com Redux. 
 export function initApp(appStore) {
+    // Armazena referência ao store do Redux para permitir dispatch de ações a partir de módulos fora da árvore React, como o runtime de visualização.
     const unbindUI = bindUIActions(appStore);
-    setRootAvailability(false, "Selecione um arquivo .root e clique em Upload para continuar.");
+    
+    setUiRootAvailability(false, "Selecione um arquivo .root e clique em Upload para continuar.");
     setTotalEvents(0);
     setText("eventLabel", "#-");
     clearRootFiles(SERVER_URL).catch(() => null);
     const timer = setTimeout(async () => {
-        setStatus("AGUARDANDO ROOT", "#facc15");
+        setUiStatus("AGUARDANDO ROOT", "#facc15");
     }, 450);
-    return () => { clearTimeout(timer); if (typeof unbindUI === "function") unbindUI(); };
+
+    // Retorna uma função de limpeza para ser chamada na desmontagem do componente React.
+    return () => {
+        clearTimeout(timer);
+        if (typeof unbindUI === "function") unbindUI();
+    };
 }

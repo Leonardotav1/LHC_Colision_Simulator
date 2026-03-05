@@ -1,5 +1,6 @@
 import { createSlice } from "@reduxjs/toolkit";
 
+// UI state specific to simulation view controls and tabs.
 const initialState = {
   activeTab: "transversal",
   heatmapLayer: "ALL",
@@ -23,6 +24,8 @@ const simulatorUiSlice = createSlice({
       if (typeof action.payload === "string") state.heatmapLayer = action.payload;
     },
     toggleFilter(state, action) {
+      // UX rule: if all filters are active, clicking one isolates that particle type.
+      // If user disables everything, it falls back to "all selected".
       const typeId = Number(action.payload);
       if (!Number.isInteger(typeId) || typeId < 0 || typeId > 5) return;
       if (state.activeFilters.length === 6) {

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
+// Builds and runs the complete Three.js detector scene and particle animation loop.
 export function buildThreeScene({ state, byId, pColors, PARTICLE, openParticleModal, update3DVisibility }) {
     const t = state.three;
     const container = byId("main3d");
@@ -32,6 +33,7 @@ export function buildThreeScene({ state, byId, pColors, PARTICLE, openParticleMo
     const detector = new THREE.Group();
     scene.add(detector);
 
+    // Helper to create detector cylindrical ring sectors.
     function criarCamadaDetector(rI, rE, depth, cor, op = 1.0) {
         const s = new THREE.Shape();
         const solidStart = 4 * Math.PI / 3;
@@ -135,6 +137,7 @@ export function buildThreeScene({ state, byId, pColors, PARTICLE, openParticleMo
     const beam2 = new THREE.Mesh(beamGeo, beamMat);
     scene.add(beam1, beam2);
 
+    // Runtime registry for animated track lines and moving heads.
     const particles = [];
     const lineMaterialFor = (typeId) => {
         const color = Number(`0x${pColors[typeId].replace("#", "")}`);
@@ -181,6 +184,7 @@ export function buildThreeScene({ state, byId, pColors, PARTICLE, openParticleMo
     let beamZ = 40;
     let wait = 0;
 
+    // Resets animated trajectories before each replay cycle.
     function restartTracks() {
         particles.forEach((p) => {
             p.idx = 0;
@@ -193,6 +197,7 @@ export function buildThreeScene({ state, byId, pColors, PARTICLE, openParticleMo
         });
     }
 
+    // Main render loop: beams phase -> track phase -> wait phase.
     function animate() {
         t.animationId = requestAnimationFrame(animate);
         if (t.playPhysics) {

@@ -1,5 +1,6 @@
 import Plotly from "plotly.js-dist-min";
 
+// Encapsulates all Plotly drawing logic so App remains focused on React UI concerns.
 export function createPlotlyRuntime({
   state,
   byId,
@@ -11,6 +12,7 @@ export function createPlotlyRuntime({
   toggleParticleFilter,
   applyFiltersToEntireUI,
 }) {
+  // Main detector-like radial view used in the "Tomografia" tab.
   function drawRadarPlot() {
     function makeWedgeSVG(rIn, rOut, aStart, aEnd, steps = 15) {
       let path = "";
@@ -189,6 +191,7 @@ export function createPlotlyRuntime({
     });
   }
 
+  // Adds MET arrow annotation when MET is visible in current filter set.
   function metAnnotation() {
     const metObj = state.byType?.[PARTICLE.MET]?.[0];
     if (!metObj || !state.activeFilters.includes(PARTICLE.MET)) return [];
@@ -217,6 +220,7 @@ export function createPlotlyRuntime({
     }];
   }
 
+  // Draws particle composition pie chart and wires click-to-filter behavior.
   function drawPiePlot() {
     Plotly.newPlot("pizzaPlotMini", [{
       values: state.counts,
@@ -239,6 +243,7 @@ export function createPlotlyRuntime({
     });
   }
 
+  // Draws pT and eta histograms from currently filtered objects.
   function drawHistograms() {
     const ptVals = [];
     const etaVals = [];
@@ -283,6 +288,7 @@ export function createPlotlyRuntime({
     }, { displayModeBar: false, responsive: true });
   }
 
+  // Prepares eta-phi points according to selected calorimeter layer.
   function heatmapDataForLayer() {
     const x = [];
     const y = [];
@@ -300,6 +306,7 @@ export function createPlotlyRuntime({
     return x.length ? { x, y } : { x: [-10], y: [-10] };
   }
 
+  // Draws calorimeter density map for eta vs phi.
   function drawHeatmap() {
     const h = heatmapDataForLayer();
     Plotly.newPlot("heatmapPlot", [{
@@ -323,6 +330,7 @@ export function createPlotlyRuntime({
     }, { displayModeBar: false, responsive: true });
   }
 
+  // Lightweight update when layer changes (avoids full replot).
   function updateHeatmapDisplay() {
     const plot = byId("heatmapPlot");
     if (!plot || !plot.data) return;
@@ -330,6 +338,7 @@ export function createPlotlyRuntime({
     Plotly.restyle("heatmapPlot", { x: [h.x], y: [h.y] });
   }
 
+  // Recolors traces and legends based on active particle filters.
   function updatePlotVisibility() {
     const radar = byId("radarPlot");
     if (radar && radar.data) {
@@ -348,6 +357,7 @@ export function createPlotlyRuntime({
     drawHistograms();
   }
 
+  // Full rendering pass used after each simulation request.
   function renderPlotly() {
     drawRadarPlot();
     drawPiePlot();
