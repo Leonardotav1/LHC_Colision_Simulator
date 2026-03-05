@@ -4,6 +4,8 @@ from services.upload_service import (
     list_uploaded_files,
     select_active_root,
     get_active_root,
+    clear_uploaded_files,
+    get_active_root_stats,
 )
 
 
@@ -18,3 +20,9 @@ def select_root_file():
 
 def active_root_file():
     return get_active_root()
+
+def clear_root_files():
+    return clear_uploaded_files()
+
+def active_root_stats():
+    return get_active_root_stats()

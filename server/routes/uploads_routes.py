@@ -4,6 +4,8 @@ from controllers.upload_controller import (
     list_root_files,
     select_root_file,
     active_root_file,
+    clear_root_files,
+    active_root_stats,
 )
 
 # Blueprint para upload de arquivos
@@ -24,3 +26,11 @@ def select():
 @upload_bp.get("/active")
 def active():
     return active_root_file()
+
+@upload_bp.post("/clear")
+def clear():
+    return clear_root_files()
+
+@upload_bp.get("/stats")
+def stats():
+    return active_root_stats()

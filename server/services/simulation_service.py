@@ -27,15 +27,15 @@ from utils.root_reader import read_root_file
 ELECTRON_RADIUS_VISUAL_SCALE = 0.45
 MIN_CHARGE_ABS = 1e-9
 
-
+# Função para normalizar phi no intervalo [-pi, pi].
 def _wrap_phi(phi):
     return float((phi + np.pi) % (2.0 * np.pi) - np.pi)
 
-
+# Função para aplicar uma sistemática simples de variação de pt, que pode ser expandida no futuro.
 def _pt_systematics(pt_gev, frac):
     return {"nominal": float(pt_gev)}
 
-
+# Gerador de números aleatórios determinístico baseado em valores de entrada, para garantir que a simulação seja reproduzível para os mesmos eventos.
 def _deterministic_rng(*values):
     seed = 0
     for idx, value in enumerate(values):
@@ -47,22 +47,9 @@ def _deterministic_rng(*values):
         seed = (seed * 1664525 + seed_part + 1013904223) & 0xFFFFFFFF
     return np.random.default_rng(seed)
 
-
-def _build_jet_fragments(eta, phi, pt_gev, base_length_cm, rng, n_fragments):
-    fragments = []
-    for _ in range(max(1, int(n_fragments))):
-        d_eta = rng.normal(0.0, 0.08)
-        d_phi = rng.normal(0.0, 0.12)
-        frag_eta = float(eta + d_eta)
-        frag_phi = _wrap_phi(float(phi + d_phi))
-        frag_pt = max(0.6, float(pt_gev * rng.uniform(0.12, 0.45)))
-        frag_dir = pt_eta_phi_to_xyz(frag_pt, frag_eta, frag_phi)
-        frag_len = base_length_cm * rng.uniform(0.65, 1.05)
-        fragments.append((frag_dir, frag_pt, frag_eta, frag_phi, frag_len))
-    return fragments
-
-
+# Função principal para construir a simulação a partir de um arquivo ROOT, processando os eventos e gerando os objetos correspondentes com suas trajetórias e resumos, enquanto lida com casos de erro como eventos fora do intervalo ou arquivos sem eventos.
 def build_simulation_from_root(file_path, start_event=0, n_events=1):
+    # Lê o arquivo ROOT e converte para um DataFrame.
     df = read_root_file(file_path)
 
     total_events = len(df)
@@ -97,7 +84,7 @@ def build_simulation_from_root(file_path, start_event=0, n_events=1):
         "event_summaries": event_summaries,
     }
 
-
+# Função para construir os objetos de simulação a partir dos dados de um evento, gerando as trajetórias para cada tipo de partícula (elétrons, múons, fótons, taus e jatos) e calculando o MET reconstruído a partir dos objetos visíveis, enquanto lida com casos como MET de entrada ou partículas que escapam do detector.
 def build_objects_from_event(event):
     objects = []
     reco_px = 0.0
@@ -235,43 +222,12 @@ def build_objects_from_event(event):
             reco_px += pt_gev * np.cos(phi)
             reco_py += pt_gev * np.sin(phi)
 
-            if traj:
-                vtx = np.array(traj[-1], dtype=float)
-                for frag_dir, frag_pt, frag_eta, frag_phi, frag_len in _build_jet_fragments(
-                    eta=eta,
-                    phi=phi,
-                    pt_gev=pt_gev,
-                    base_length_cm=HCAL_RADIUS_CM * 0.85,
-                    rng=rng,
-                    n_fragments=2,
-                ):
-                    frag_track = straight_trajectory(frag_dir, length=frag_len, steps=70)
-                    frag_shifted = [(p[0] + vtx[0], p[1] + vtx[1], p[2] + vtx[2]) for p in frag_track]
-                    frag_traj, frag_stop = clip_trajectory_to_cylinder(
-                        frag_shifted,
-                        radius_cm=HCAL_RADIUS_CM,
-                        half_z_cm=HCAL_HALF_Z_CM,
-                        stop_reason="tau_decay_to_hadrons",
-                    )
-                    objects.append(
-                        {
-                            "type": "jet",
-                            "trajectory": frag_traj,
-                            "color": "#ff0000",
-                            "stop_reason": frag_stop,
-                            "reco": {"pt_gev": _pt_systematics(frag_pt, 0.0), "eta": frag_eta, "phi": frag_phi},
-                        }
-                    )
-                    reco_px += frag_pt * np.cos(frag_phi)
-                    reco_py += frag_pt * np.sin(frag_phi)
-
     if event["jet_n"] > 0:
         for pt, eta, phi in zip(event["jet_pt"], event["jet_eta"], event["jet_phi"]):
             pt_gev = float(pt) * MEV_TO_GEV
             eta = float(eta)
             phi = _wrap_phi(float(phi))
             direction = pt_eta_phi_to_xyz(pt_gev, eta, phi)
-            rng = _deterministic_rng(pt_gev, eta, phi, 31.0)
 
             full_traj = straight_trajectory(direction, length=JET_LENGTH_CM, steps=80)
             traj, stop_reason = clip_trajectory_to_cylinder(
@@ -291,34 +247,6 @@ def build_objects_from_event(event):
             )
             reco_px += pt_gev * np.cos(phi)
             reco_py += pt_gev * np.sin(phi)
-
-            n_frags = int(np.clip(2 + pt_gev / 35.0, 2, 5))
-            for frag_dir, frag_pt, frag_eta, frag_phi, frag_len in _build_jet_fragments(
-                eta=eta,
-                phi=phi,
-                pt_gev=pt_gev,
-                base_length_cm=JET_LENGTH_CM,
-                rng=rng,
-                n_fragments=n_frags,
-            ):
-                frag_track = straight_trajectory(frag_dir, length=frag_len, steps=65)
-                frag_traj, frag_stop = clip_trajectory_to_cylinder(
-                    frag_track,
-                    radius_cm=HCAL_RADIUS_CM,
-                    half_z_cm=HCAL_HALF_Z_CM,
-                    stop_reason="hadronic_shower_hcal",
-                )
-                objects.append(
-                    {
-                        "type": "jet",
-                        "trajectory": frag_traj,
-                        "color": "#ff0000",
-                        "stop_reason": frag_stop,
-                        "reco": {"pt_gev": _pt_systematics(frag_pt, 0.0), "eta": frag_eta, "phi": frag_phi},
-                    }
-                )
-                reco_px += frag_pt * np.cos(frag_phi)
-                reco_py += frag_pt * np.sin(frag_phi)
 
     met_reco_px = -reco_px
     met_reco_py = -reco_py

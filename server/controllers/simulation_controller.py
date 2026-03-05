@@ -5,7 +5,7 @@ from services.upload_service import get_active_root
 from utils.json_utils import to_json_safe
 from utils.plot_builder import build_collision_figure
 
-
+# Rota para simular eventos a partir do arquivo ROOT ativo
 def simulate_event():
     data = request.get_json(silent=True) or {}
 
@@ -36,7 +36,7 @@ def simulate_event():
         }), 400
     if not os.path.exists(file_path):
         return jsonify({
-            "error": "O arquivo ROOT ativo nao existe mais no disco.",
+            "error": "O arquivo ROOT ativo não existe mais no disco.",
             "error_code": "ROOT_MISSING_ON_DISK"
         }), 404
 

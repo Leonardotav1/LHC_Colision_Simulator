@@ -1,6 +1,8 @@
 from flask import current_app, request
 import os
+import uproot
 from werkzeug.utils import secure_filename
+from utils.root_reader import _pick_tree_key
 
 def _list_root_files(upload_folder):
     if not os.path.isdir(upload_folder):
@@ -29,6 +31,21 @@ def _ensure_active_root(upload_folder):
     current_app.config["ROOT_FILE_PATH"] = active
     return active
 
+def _clear_upload_folder(upload_folder):
+    removed = []
+    if not os.path.isdir(upload_folder):
+        return removed
+    for name in os.listdir(upload_folder):
+        path = os.path.join(upload_folder, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            os.remove(path)
+            removed.append(name)
+        except OSError:
+            continue
+    return removed
+
 def process_root_upload():
     file = request.files.get("file")
 
@@ -41,7 +58,7 @@ def process_root_upload():
     upload_folder = current_app.config["UPLOAD_FOLDER"]
     os.makedirs(upload_folder, exist_ok=True)
 
-    previous_active = current_app.config.get("ROOT_FILE_PATH")
+    removed_previous = _clear_upload_folder(upload_folder)
     filename = secure_filename(file.filename)
     filepath = os.path.join(upload_folder, filename)
     file.save(filepath)
@@ -49,23 +66,12 @@ def process_root_upload():
     # Guarda o caminho do ultimo ROOT para a rota /simulate usar
     current_app.config["ROOT_FILE_PATH"] = filepath
 
-    removed_previous = None
-    if previous_active:
-        prev_abs = os.path.abspath(previous_active)
-        new_abs = os.path.abspath(filepath)
-        if prev_abs != new_abs and os.path.exists(prev_abs):
-            try:
-                os.remove(prev_abs)
-                removed_previous = os.path.basename(prev_abs)
-            except OSError:
-                removed_previous = None
-
     return {
         "status": "ok",
         "filename": filename,
         "path": filepath,
         "active_filename": filename,
-        "removed_previous": removed_previous
+        "removed_previous": removed_previous,
     }
 
 def list_uploaded_files():
@@ -98,3 +104,28 @@ def get_active_root():
     if not active:
         return {"active_filename": None, "path": None}
     return {"active_filename": os.path.basename(active), "path": active}
+
+def clear_uploaded_files():
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_folder, exist_ok=True)
+    removed = _clear_upload_folder(upload_folder)
+    current_app.config["ROOT_FILE_PATH"] = None
+    return {"status": "ok", "removed": removed}
+
+def get_active_root_stats():
+    active = get_active_root()
+    file_path = active.get("path")
+    if not file_path or not os.path.exists(file_path):
+        return {"error": "Nenhum arquivo ROOT ativo no momento."}, 404
+    try:
+        with uproot.open(file_path) as root_file:
+            tree_key = _pick_tree_key(root_file)
+            tree = root_file[tree_key]
+            total_events = int(tree.num_entries)
+    except Exception:
+        return {"error": "Nao foi possivel ler metadados do arquivo ROOT ativo."}, 400
+    return {
+        "status": "ok",
+        "active_filename": os.path.basename(file_path),
+        "total_events": total_events,
+    }
