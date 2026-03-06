@@ -1,6 +1,6 @@
 import Plotly from "plotly.js-dist-min";
 
-// Encapsulates all Plotly drawing logic so App remains focused on React UI concerns.
+// Encapsula a toda a lógica de criação e atualização dos gráficos Plotly, mantendo o código organizado e modular.
 export function createPlotlyRuntime({
   state,
   byId,
@@ -12,7 +12,7 @@ export function createPlotlyRuntime({
   toggleParticleFilter,
   applyFiltersToEntireUI,
 }) {
-  // Main detector-like radial view used in the "Tomografia" tab.
+  // Detecta pontos de impacto e decaimento para cada partícula e desenha os traços de trajetória e manchas de energia correspondentes.
   function drawRadarPlot() {
     function makeWedgeSVG(rIn, rOut, aStart, aEnd, steps = 15) {
       let path = "";
@@ -285,7 +285,7 @@ export function createPlotlyRuntime({
       bargap: 0.06,
       xaxis: { title: "Pseudorapidez (eta)", gridcolor: "rgba(255,255,255,0.05)" },
       yaxis: { title: "Contagem", gridcolor: "rgba(255,255,255,0.05)" },
-    }, { displayModeBar: false, responsive: true });
+    }, { displayModeBar: "hover", displaylogo: false, responsive: true });
   }
 
   // Prepares eta-phi points according to selected calorimeter layer.
@@ -327,7 +327,7 @@ export function createPlotlyRuntime({
       margin: { t: 20, l: 60, r: 10, b: 60 },
       xaxis: { title: "Pseudorapidez (eta)", gridcolor: "rgba(255,255,255,0.05)", range: [-3, 3] },
       yaxis: { title: "Angulo Azimutal (phi)", gridcolor: "rgba(255,255,255,0.05)", range: [-3.14, 3.14] },
-    }, { displayModeBar: false, responsive: true });
+    }, { displayModeBar: "hover", displaylogo: false, responsive: true });
   }
 
   // Lightweight update when layer changes (avoids full replot).

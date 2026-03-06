@@ -1,4 +1,4 @@
-// Imperative runtime state used by Three.js and Plotly engines.
+// Maneja o estado global do simulador, incluindo filtros ativos, objetos simulados e configurações da cena 3D.
 export const state = {
   activeFilters: [0, 1, 2, 3, 4, 5],
   currentHeatmapLayer: "ALL",
@@ -25,6 +25,6 @@ export const state = {
 };
 
 export function filteredObjects() {
-  // Filters the latest simulated objects based on active particle filters.
+  // Filtros ativos para os tipos de partículas, usados para determinar quais objetos devem ser renderizados na visualização 3D e nos gráficos.
   return state.objects.filter((o) => state.activeFilters.includes(o.typeId));
 }

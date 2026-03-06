@@ -115,7 +115,7 @@ export function recoValue(obj) {
   return typeof p === "number" ? p : Number(p?.nominal ?? 0);
 }
 
-// Normlaiza a trajetória de um objeto para o formato esperado pela simulação, garantindo que seja uma matriz de pontos 3D (x, y, z) e filtrando casos onde a trajetória não é válida ou tem menos de 2 pontos.
+// Normaliza a trajetória de um objeto para o formato esperado pela simulação, garantindo que seja uma matriz de pontos 3D (x, y, z) e filtrando casos onde a trajetória não é válida ou tem menos de 2 pontos.
 export function parseObjects(fig) {
   const traces = Array.isArray(fig?.data) ? fig.data : [];
 

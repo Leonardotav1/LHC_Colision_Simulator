@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector, useStore } from "react-redux";
 import { initApp } from "@/simulator/runtime/simulatorRuntime.js";
 import ParticleModal from "@/simulator/modal/ParticleModal.jsx";
+import { clearBanner, setFileLabel, setStatus } from "@/store/appUiSlice.js";
 import {
   resetFilters,
   setActiveTab,
@@ -12,12 +13,13 @@ import {
   togglePlayPhysics,
   toggleFilter,
 } from "@/store/simulatorUiSlice.js";
-import { openFilePicker, runSimulation, toggleFullScreen, uploadSelectedFile } from "@/simulator/runtime/simulatorRuntime.js";
+import { runSimulation, toggleFullScreen, uploadSelectedFile } from "@/simulator/runtime/simulatorRuntime.js";
 
+// Configurações iniciais do estado global da UI do simulador, incluindo abas ativas, filtros e controles de exibição. 
 const TAB_ITEMS = [
   { id: "transversal", label: "Tomografia" },
-  { id: "compo", label: "Composicao" },
-  { id: "stats", label: "Estatisticas" },
+  { id: "compo", label: "Composição" },
+  { id: "stats", label: "Estatísticas" },
   { id: "heatmap", label: "Mapa (eta-phi)" },
 ];
 
@@ -59,7 +61,12 @@ export default function App() {
   const simulatorUi = useSelector((s) => s.simulatorUi);
   const appUi = useSelector((s) => s.appUi);
 
+  // Estado local para controlar se o simulador está em modo de tela cheia.
   const [isFullscreen, setIsFullscreen] = useState(Boolean(document.fullscreenElement));
+  // Estado local para armazenar o arquivo selecionado pelo usuário, usado para upload e simulação.
+  const [selectedFile, setSelectedFile] = useState(null);
+  // Ref para o input de arquivo, permitindo abrir o seletor de arquivos programaticamente.
+  const fileInputRef = useRef(null);
 
   // Inicializa o runtime imperativo (Three + Plotly + backend bridge) e registra cleanup no unmount.
   useEffect(() => {
@@ -76,14 +83,35 @@ export default function App() {
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
-  // Forca resize quando o usuario troca de aba, para Plotly recalcular dimensoes corretamente.
+  // Força resize quando o usuário troca de aba, para Plotly recalcular dimensões corretamente.
   useEffect(() => {
     window.dispatchEvent(new Event("resize"));
   }, [simulatorUi.activeTab]);
 
-  const isFilterActive = useCallback((typeId) => simulatorUi.activeFilters.includes(typeId), [simulatorUi.activeFilters]);
+  const isFilterActive = (typeId) => simulatorUi.activeFilters.includes(typeId);
   const allFiltersEnabled = simulatorUi.activeFilters.length === 6;
-  const activeFilterLabels = useMemo(() => HUD_FILTERS.filter((item) => isFilterActive(item.id)), [isFilterActive]);
+  const activeFilterLabels = HUD_FILTERS.filter((item) => isFilterActive(item.id));
+
+  // Função para abrir o seletor de arquivos.
+  const handleOpenFilePicker = () => fileInputRef.current?.click();
+
+  // Função para lidar com a seleção de arquivo, atualizando o estado local e global da UI, e preparando o arquivo para upload.
+  const handleFileInputChange = (event) => {
+    const file = event.target?.files?.[0] || null;
+    setSelectedFile(file);
+
+    if (!file) {
+      dispatch(setStatus({ text: "AGUARDANDO ROOT", color: "#facc15" }));
+      return;
+    }
+
+    dispatch(setFileLabel(file.name));
+    dispatch(clearBanner());
+    dispatch(setStatus({ text: "ARQUIVO PRONTO PARA UPLOAD", color: "#38bdf8" }));
+  };
+
+  // Função para enviar o arquivo selecionado para o backend, atualizar o estado da UI e preparar para simulação.
+  const handleUploadFile = () => uploadSelectedFile(selectedFile);
 
   return (
     <>
@@ -94,7 +122,9 @@ export default function App() {
           {appUi.loadingMessage}
         </div>
       </div>
-      <div id="errorBanner" className={`error-banner ${appUi.bannerVisible ? "show" : ""} ${appUi.bannerLevel || ""}`}>
+      
+      {/* Banner de status */}
+      <div id="statusBanner" className={`status-banner ${appUi.bannerVisible ? "show" : ""} ${appUi.bannerLevel || ""}`}>
         {appUi.bannerMessage}
       </div>
 
@@ -114,11 +144,14 @@ export default function App() {
           </span>
         </div>
         <div className="nav-controls">
-          <input type="file" id="fileInput" style={{ display: "none" }} />
-          <button className="btn" id="fileBtn" onClick={openFilePicker}>
+          {/* Input para selecionar arquivo */}
+          <input ref={fileInputRef} type="file" id="fileInput" style={{ display: "none" }} onChange={handleFileInputChange} />
+          {/* Botão para selecionar arquivo */}
+          <button className="btn" id="fileBtn" onClick={handleOpenFilePicker}>
             Selecionar Arquivo
           </button>
-          <button className="btn" id="uploadBtn" onClick={uploadSelectedFile}>
+          {/* Botão para upload do arquivo selecionado */}
+          <button className="btn" id="uploadBtn" onClick={handleUploadFile}>
             Upload
           </button>
           <div className="v-sep" />
@@ -131,7 +164,7 @@ export default function App() {
             <input type="number" id="eventoInput" defaultValue="0" min="0" disabled={!appUi.hasRootFile} />
           </div>
           <div className="event-selector" title="Quantidade de eventos a simular">
-            <span>N EVENTOS</span>
+            <span>N SIMULAÇÕES</span>
             <input type="number" id="numInput" defaultValue="1" min="1" disabled={!appUi.hasRootFile} />
           </div>
           <button className="btn" id="simMainBtn" onClick={runSimulation} disabled={!appUi.hasRootFile}>
@@ -145,7 +178,7 @@ export default function App() {
       <div className="container">
         <div className="col-main panel panel-flex-grow" id="panel-3d">
           <div className="panel-header">
-            <span>Camara de Colisao 3D (Ref. CMS Detector)</span>
+            <span>Camara de Colisão 3D (Ref. CMS Detector)</span>
             <div className="btn-fs-group">
               <span id="filt-alert" className="filt-alert" style={{ display: allFiltersEnabled ? "none" : "inline-block" }}>
                 FILTRO ATIVADO
@@ -190,7 +223,7 @@ export default function App() {
             <span style={{ fontSize: "10px", color: "#94a3b8", marginRight: "3px" }}>Exibindo:</span>
             {allFiltersEnabled ? (
               <span className="filter-badge" style={{ background: "rgba(255,255,255,0.12)", color: "#fff", borderColor: "rgba(255,255,255,0.35)" }}>
-                Todas as particulas
+                Todas as partículas
               </span>
             ) : (
               activeFilterLabels.map((item) => (
@@ -219,7 +252,7 @@ export default function App() {
 
           <div id="tab-compo" className={`tab-content panel ${simulatorUi.activeTab === "compo" ? "active" : ""}`}>
             <div className="panel-header">
-              <span>Composicao e Balanco (MET)</span>
+              <span>Composicao e Balanço (MET)</span>
               <button id="btnResetFilter" className="btn-filter" onClick={() => dispatch(resetFilters())} style={{ display: allFiltersEnabled ? "none" : "inline-block" }}>
                 Mostrar Todas
               </button>

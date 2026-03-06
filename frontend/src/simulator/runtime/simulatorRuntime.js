@@ -35,7 +35,6 @@ const pColors = PARTICLE_COLORS;
 const pColorsDim = PARTICLE_COLORS_DIM;
 // Shared reference to Redux store for runtime modules outside React tree.
 let uiStoreRef = null;
-let pendingUploadFile = null;
 const ALL_FILTERS = [0, 1, 2, 3, 4, 5];
 const RESIZE_PLOT_IDS = ["radarPlot", "pizzaPlotMini", "ptDistPlot", "etaDistPlot", "heatmapPlot", "particlePlotXY", "particlePlotRZ"];
 
@@ -58,10 +57,12 @@ function setUiRootAvailability(hasRootFile, message = "") {
     dispatchUi(setRootAvailabilityAction({ hasRootFile, message }));
 }
 
-function showUiError(message) {
-    dispatchUi(showBannerAction({ message, level: "error" }));
+// Função para mostrar mensagens de status ou erro no banner da UI.
+function showUiMessage(message, level = "info") {
+    dispatchUi(showBannerAction({ message, level }));
 }
 
+// Função para limpar as mensagens de banner, útil para remover alertas antigos antes de novas ações.
 function clearUiBanner() {
     dispatchUi(clearBannerAction());
 }
@@ -113,6 +114,7 @@ function handleWindowResize() {
     resizePlots();
 }
 
+// Seta O número de eventos presentes no arquivo ROOT ativo e exibe no campo respectivo no frontend.
 function setTotalEvents(total) {
     const totalEl = byId("totalEventosInput");
     if (!totalEl) return;
@@ -128,6 +130,7 @@ function openParticleModal(particle) {
     window.dispatchEvent(new CustomEvent("particle-modal:open", { detail: particle }));
 }
 
+// Função para atualizar a UI com os metadados da simulação que vêm do backend. 
 function updateBackendMeta(meta) {
     state.meta = meta || {};
     const b = Number(meta?.magnetic_field_t);
@@ -152,6 +155,7 @@ function updateBackendMeta(meta) {
     syncEventInputBounds();
 }
 
+// Função para atualizar o estado dos objetos na simulação.
 function updateStateObjects(objects) {
     state.objects = objects;
     state.byType = [[], [], [], [], [], []];
@@ -212,11 +216,9 @@ const plotlyEngine = createPlotlyRuntime({
     applyFiltersToEntireUI,
 });
 
-
 function build3DScene() {
     buildThreeScene({ state, byId, pColors, PARTICLE, openParticleModal, update3DVisibility });
 }
-
 
 function update3DVisibility() {
     const p = state.three.particles;
@@ -234,26 +236,26 @@ export function toggleFullScreen() {
     else document.exitFullscreen();
 }
 
-export function openFilePicker() {
-    byId("fileInput")?.click();
-}
-
-export async function uploadSelectedFile() {
+// Função para abrir o seletor de arquivos, disparando o clique no input escondido.
+export async function uploadSelectedFile(file) {
     try {
         clearUiBanner();
-        if (!pendingUploadFile) {
+
+        if (!file) {
             throw new Error("Selecione um arquivo .root antes de fazer upload.");
         }
-        await uploadArquivo(pendingUploadFile);
+
+        // Chama a função de upload do backend, que envia o arquivo para o servidor e aguarda resposta.
+        await uploadArquivo(file);
+
+        // Após upload bem-sucedido, busca as estatísticas do arquivo ROOT ativo para atualizar o número total de eventos e a disponibilidade da simulação.
         const stats = await getActiveRootStats(SERVER_URL);
         setTotalEvents(stats.total_events);
         setUiRootAvailability(true);
         setUiStatus("UPLOAD OK", "#4ade80");
-        pendingUploadFile = null;
-        const input = byId("fileInput");
-        if (input) input.value = "";
+        showUiMessage("Arquivo enviado com sucesso! Pronto para simular.", "success");
     } catch (e) {
-        showUiError(e.message || "Erro no upload");
+        showUiMessage(e.message || "Erro no upload", "warning");
         setUiStatus("UPLOAD ERRO", "#ef4444");
     }
 }
@@ -262,7 +264,7 @@ export function runSimulation() {
     return simularEvento().catch((e) => {
         console.error(e);
         const message = e.message || "Erro inesperado no backend.";
-        showUiError(message);
+        showUiMessage(message);
         setUiStatus("ERRO BACKEND", "#ef4444");
     });
 }
@@ -278,19 +280,6 @@ function syncThreeControls(controls) {
     state.three.playRotation = !!controls.playRotation;
     if (state.three.grid) state.three.grid.visible = !!controls.showGrid;
     if (state.three.trackerGroup) state.three.trackerGroup.visible = !!controls.showSensors;
-}
-
-async function handleFileInputChange() {
-    const input = byId("fileInput");
-    const file = input?.files?.[0] || null;
-    pendingUploadFile = file;
-    if (!file) {
-        setUiStatus("AGUARDANDO ROOT", "#facc15");
-        return;
-    }
-    setUiFileLabel(file.name);
-    clearUiBanner();
-    setUiStatus("ARQUIVO PRONTO PARA UPLOAD", "#38bdf8");
 }
 
 function applyUiState(ui, prevUi) {
@@ -326,38 +315,57 @@ function subscribeUiStore(appStore) {
     return appStore.subscribe(apply);
 }
 
-
+// Função para enviar o arquivo selecionado para o backend, atualizar o estado da UI e preparar para simulação.
 async function uploadArquivo(file) {
     if (!file) return;
+
     setUiStatus("ENVIANDO ROOT...");
+    
     const data = await uploadRootFile(SERVER_URL, file);
     setUiFileLabel(data.filename || file.name);
     state.ui.activeFilename = data.filename || file.name || "";
 }
 
+// Função principal para simular eventos, que valida inputs, chama o backend para simulação, processa os resultados e atualiza a visualização 3D e os gráficos Plotly.
 async function simularEvento() {
     clearUiBanner();
+
     if (!state.ui.hasRootFile) {
         throw new Error("Nenhum arquivo ROOT carregado. Envie ou selecione um arquivo antes de simular.");
     }
+
     syncEventInputBounds();
+
+    // Evento inicial e número de simulações respectivamente
     const start = Number(byId("eventoInput").value || 0);
     const num = Math.max(1, Number(byId("numInput").value || 1));
+
     if (!Number.isFinite(start) || start < 0) {
         throw new Error("Evento inicial invalido. Informe um numero inteiro maior ou igual a 0.");
     }
     if (!Number.isFinite(num) || num < 1) {
-        throw new Error("Quantidade de eventos invalida. Informe um numero inteiro maior ou igual a 1.");
+        throw new Error("Quantidade de simulações invalida. Informe um numero inteiro maior ou igual a 1.");
     }
+    
     byId("eventLabel").textContent = `#${start}`;
-    byId("eventRangeLabel").textContent = `N EVENTOS: ${num}`;
+    byId("eventRangeLabel").textContent = `N SIMULAÇÕES: ${num}`;
+    
     setUiStatus("SIMULANDO...");
-    showUiLoading(`Simulando ${num} evento(s)...`);
+    showUiLoading(`Simulando ${num} simulação(ões)...`);
+    
+    
     try {
+        // Chama a função de simulação do backend, que processa o arquivo ROOT ativo e retorna os dados dos eventos simulados.
         const fig = await simulateFromBackend(SERVER_URL, start, num);
+
+        // Atualiza os metadados da simulação.
         updateBackendMeta(fig?.layout?.meta || {});
+
+        // Atualiza o estado dos objetos simulados, que por sua vez atualiza a visualização 3D e os gráficos Plotly através do estado compartilhado e das funções de renderização.
         const objects = parseObjects(fig);
         updateStateObjects(objects);
+
+        // Constrói a simulação 3D e renderiza os gráficos Plotly com os dados atualizados, garantindo que a interface reflita os resultados da simulação.
         plotlyEngine.renderPlotly();
         build3DScene();
         setUiStatus("SISTEMA ONLINE", "#4ade80");
@@ -376,7 +384,6 @@ function bindUIActions(appStore) {
 
 
     window.addEventListener("beforeunload", onBeforeUnload);
-    byId("fileInput")?.addEventListener("change", handleFileInputChange);
     byId("eventoInput")?.addEventListener("change", syncEventInputBounds);
     byId("numInput")?.addEventListener("change", syncEventInputBounds);
     window.addEventListener("resize", handleWindowResize);
@@ -386,7 +393,6 @@ function bindUIActions(appStore) {
     return () => {
         uiStoreRef = null;
         window.removeEventListener("beforeunload", onBeforeUnload);
-        byId("fileInput")?.removeEventListener("change", handleFileInputChange);
         byId("eventoInput")?.removeEventListener("change", syncEventInputBounds);
         byId("numInput")?.removeEventListener("change", syncEventInputBounds);
         window.removeEventListener("resize", handleWindowResize);
